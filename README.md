@@ -3,7 +3,7 @@
 A C reimplementation of [cowsay 3.03](https://github.com/tnalpgge/rank-amateur-cowsay) (c) 1999-2000 Tony Monroe, written for compilation to `wasm32-wasip1`.
 
 The original cowsay is a Perl script; the popular wasm build on the Wasmer registry is a Rust clone that weighs 772 kB and mis-draws the cow.
-This implementation produces the original's exact output from a single C file, and the wasm binary is about 68 kB with all 47 cowfiles embedded.
+This implementation produces the original's exact output from a single C file, and the wasm binary is about 68 kB with all cowfiles embedded.
 
 ```console
 $ echo moo | wasmtime run cowsay.wasm
@@ -62,11 +62,13 @@ ASCII input is unaffected, since there a byte and a codepoint are the same thing
 
 ## Cowfiles
 
-All 47 `.cow` files from cowsay 3.03 are embedded in the binary, so `-f name` and `-l` work without any filesystem access.
+All 47 `.cow` files from cowsay 3.03, plus the original `clawd` (the Claude Code crab), are embedded in the binary, so `-f name` and `-l` work without any filesystem access.
+Unlike the plain-text originals, `clawd` is drawn the way the Claude Code welcome screen draws its sprite: one sprite unit per character cell, as Unicode full blocks colored by ANSI truecolor escapes that pass through to the output.
+Without color the escapes are noise but the block characters still form the silhouette.
 Setting `COWPATH` switches to real directories with the original search rules (`dir/name`, then `dir/name.cow`); under a wasm runtime those need a preopen, e.g. `wasmtime run --dir cows --env COWPATH=cows cowsay.wasm -f moose`.
 A `-f` value containing `/` always reads the real filesystem.
 
-A cowfile is a Perl script, but every file shipped with cowsay 3.03 fits a small grammar: comments, one interpolating heredoc assigned to `$the_cow`, and the two eye-manipulation statement idioms used by `small.cow`, `three-eyes.cow` and `udder.cow`.
+A cowfile is a Perl script, but every included file fits a small grammar: comments, one interpolating heredoc assigned to `$the_cow`, and the eye-manipulation statement idioms used by `small.cow`, `three-eyes.cow` and `udder.cow`.
 The parser accepts exactly that grammar and rejects anything else with an error naming the line, so a cowfile is either rendered byte-identically or refused, never mis-rendered.
 `mech-and-cow` (not a valid cowfile even for the original) and the `*.pm` modules from the upstream `cows/` directory are not included.
 

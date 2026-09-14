@@ -361,11 +361,12 @@ static void display_usage(void) {
 
 /* ---------- cowfile parsing ----------
  *
- * A .cow file is a Perl script, but every cowfile shipped with cowsay 3.03
- * fits a small grammar: comment and blank lines, at most one of the three
- * preamble statement idioms below, one interpolating heredoc assigned to
- * $the_cow, and nothing after its terminator.  Anything else is rejected
- * with an error naming the line, never mis-rendered.
+ * A .cow file is a Perl script, but every included cowfile fits a small
+ * grammar: comment and blank lines, the preamble statement idioms below
+ * (chop assignments into scratch variables and eye-append forms), one
+ * interpolating heredoc assigned to $the_cow, and nothing after its
+ * terminator.  Anything else is rejected with an error naming the line,
+ * never mis-rendered.
  */
 
 static const char *cow_source; /* display name for error messages */
@@ -416,12 +417,34 @@ static char *match_ident(const char **p) {
     return id;
 }
 
-/* The value of $thoughts, $eyes or $tongue, or NULL. */
+/* Scratch variables assigned in a cowfile preamble ($extra, $eye1, ...). */
+static List cow_var_names;
+static List cow_var_vals;
+
+static void set_cow_var(char *name, char *val) {
+    for (size_t i = 0; i < cow_var_names.n; i++)
+        if (strcmp(cow_var_names.v[i], name) == 0) {
+            free(cow_var_vals.v[i]);
+            cow_var_vals.v[i] = val;
+            free(name);
+            return;
+        }
+    list_push(&cow_var_names, name);
+    list_push(&cow_var_vals, val);
+}
+
+static const char *get_cow_var(const char *name) {
+    for (size_t i = 0; i < cow_var_names.n; i++)
+        if (strcmp(cow_var_names.v[i], name) == 0) return cow_var_vals.v[i];
+    return NULL;
+}
+
+/* The value of $thoughts, $eyes, $tongue or a preamble variable, or NULL. */
 static const char *var_value(const char *name) {
     if (strcmp(name, "thoughts") == 0) return thoughts;
     if (strcmp(name, "eyes") == 0) return eyes;
     if (strcmp(name, "tongue") == 0) return tongue;
-    return NULL;
+    return get_cow_var(name);
 }
 
 static void interpolate_body_line(Buf *out, const char *line, size_t n, int lineno) {
@@ -433,6 +456,9 @@ static void interpolate_body_line(Buf *out, const char *line, size_t n, int line
             char e = line[i + 1];
             if (e == '\\' || e == '$' || e == '@') {
                 buf_push(out, e);
+                i += 2;
+            } else if (e == 'e') {
+                buf_push(out, '\x1b'); /* Perl "\e": clawd.cow's ANSI colors */
                 i += 2;
             } else {
                 cow_error(lineno, "unsupported escape in cowfile");
@@ -468,20 +494,10 @@ static void interpolate_body_line(Buf *out, const char *line, size_t n, int line
 }
 
 /* Parse one preamble statement; returns 1 if recognized.
- * chop_var/chop_val carry state between the two lines of the chop idiom. */
-static char **chop_var_slot(void) {
-    static char *slot;
-    return &slot;
-}
-static char **chop_val_slot(void) {
-    static char *slot;
-    return &slot;
-}
-
+ * Chopped characters land in the cow variable table, so a cowfile can chop
+ * more than once ($eye1/$eye2 in clawd.cow). */
 static int parse_preamble_stmt(const char *line) {
     const char *p = skip_ws(line);
-    char **chop_var = chop_var_slot();
-    char **chop_val = chop_val_slot();
     /* $<var> = chop($eyes); */
     if (*p == '$') {
         const char *q = p + 1;
@@ -493,10 +509,7 @@ static int parse_preamble_stmt(const char *line) {
                 if (match_lit(&q, "chop($eyes);")) {
                     q = skip_ws(q);
                     if (*q == '\0' || *q == '\n') {
-                        free(*chop_var);
-                        free(*chop_val);
-                        *chop_var = name;
-                        *chop_val = chop_unit(eyes);
+                        set_cow_var(name, chop_unit(eyes));
                         return 1;
                     }
                 }
@@ -513,35 +526,43 @@ static int parse_preamble_stmt(const char *line) {
             if (*q == '(' && q[1] == '$') {
                 const char *r = q + 2;
                 char *name = match_ident(&r);
+                const char *v = name ? get_cow_var(name) : NULL;
                 r = skip_ws(r);
-                if (name && *chop_var && strcmp(name, *chop_var) == 0 &&
-                    match_lit(&r, "x") && (r = skip_ws(r), match_lit(&r, "2);")) &&
+                if (v && match_lit(&r, "x") && (r = skip_ws(r), match_lit(&r, "2);")) &&
                     (r = skip_ws(r), *r == '\0' || *r == '\n')) {
                     Buf b = {0};
                     buf_append(&b, eyes, strlen(eyes));
-                    buf_append(&b, *chop_val, strlen(*chop_val));
-                    buf_append(&b, *chop_val, strlen(*chop_val));
+                    buf_append(&b, v, strlen(v));
+                    buf_append(&b, v, strlen(v));
                     free(eyes);
                     eyes = b.p;
                     free(name);
                     return 1;
                 }
                 free(name);
-            } else if (*q == '"' && q[1] == ' ' && q[2] == '$') {
-                const char *r = q + 3;
-                char *name = match_ident(&r);
-                if (name && *chop_var && strcmp(name, *chop_var) == 0 &&
-                    match_lit(&r, "\";") && (r = skip_ws(r), *r == '\0' || *r == '\n')) {
-                    Buf b = {0};
-                    buf_append(&b, eyes, strlen(eyes));
-                    buf_push(&b, ' ');
-                    buf_append(&b, *chop_val, strlen(*chop_val));
-                    free(eyes);
-                    eyes = b.p;
+            } else if (*q == '"') {
+                /* $eyes .= " $<var>"; with one or more spaces (udder.cow
+                 * uses one, clawd.cow two). */
+                const char *sp = q + 1;
+                const char *r = sp;
+                while (*r == ' ') r++;
+                size_t nsp = (size_t)(r - sp);
+                if (nsp > 0 && *r == '$') {
+                    r++;
+                    char *name = match_ident(&r);
+                    const char *v = name ? get_cow_var(name) : NULL;
+                    if (v && match_lit(&r, "\";") && (r = skip_ws(r), *r == '\0' || *r == '\n')) {
+                        Buf b = {0};
+                        buf_append(&b, eyes, strlen(eyes));
+                        buf_append(&b, sp, nsp);
+                        buf_append(&b, v, strlen(v));
+                        free(eyes);
+                        eyes = b.p;
+                        free(name);
+                        return 1;
+                    }
                     free(name);
-                    return 1;
                 }
-                free(name);
             }
         }
         /* $eyes = "<lit>" unless ($eyes); */
