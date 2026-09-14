@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make cowsay-native
+      - name: Differential test against the reference
+        run: bash test/run.sh
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install wasi-sdk
+        # keep in sync with the version the README names
+        run: |
+          curl -fsSL --retry 5 -o /tmp/wasi-sdk.tar.gz \
+            https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz
+          echo "b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4  /tmp/wasi-sdk.tar.gz" | shasum -a 256 -c -
+          sudo tar -xzf /tmp/wasi-sdk.tar.gz -C /opt
+          echo "WASI_SDK_PATH=/opt/wasi-sdk-34.0-x86_64-linux" >> "$GITHUB_ENV"
+      - name: Install binaryen and wasmtime
+        run: |
+          sudo apt-get update && sudo apt-get install -y binaryen
+          curl -fsSL --retry 5 https://wasmtime.dev/install.sh | bash
+          echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+      - name: Build
+        run: make cowsay.wasm
+      - name: Differential test under wasmtime
+        run: COWSAY_TEST_MODE=wasm bash test/run.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cowsay.wasm
+          path: cowsay.wasm

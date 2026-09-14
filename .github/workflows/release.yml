@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install wasi-sdk
+        run: |
+          curl -fsSL --retry 5 -o /tmp/wasi-sdk.tar.gz \
+            https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz
+          echo "b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4  /tmp/wasi-sdk.tar.gz" | shasum -a 256 -c -
+          sudo tar -xzf /tmp/wasi-sdk.tar.gz -C /opt
+          echo "WASI_SDK_PATH=/opt/wasi-sdk-34.0-x86_64-linux" >> "$GITHUB_ENV"
+      - name: Install binaryen and wasmtime
+        run: |
+          sudo apt-get update && sudo apt-get install -y binaryen
+          curl -fsSL --retry 5 https://wasmtime.dev/install.sh | bash
+          echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+      - name: Build and test
+        run: |
+          make cowsay.wasm cowsay-native
+          bash test/run.sh
+          COWSAY_TEST_MODE=wasm bash test/run.sh
+      - name: Checksum
+        run: shasum -a 256 cowsay.wasm > cowsay.wasm.sha256
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes cowsay.wasm cowsay.wasm.sha256
