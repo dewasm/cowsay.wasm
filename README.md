@@ -3,7 +3,8 @@
 cowsay 3.03 (c) 1999-2000 Tony Monroe, reimplemented in C for `wasm32-wasip1`.
 
 The popular wasm build of cowsay is [a Rust clone](https://github.com/wapm-packages/cowsay).
-It weighs 700+ kB, and its cow has a broken leg.
+It weighs 700+ kB for a program that prints a cow.
+That cow also has [broken legs](https://x.com/make_now_just/status/2100555120329347437).
 
 This one stays under 100 kB, and its cow stands straight.
 It prints exactly what [the original](https://github.com/tnalpgge/rank-amateur-cowsay) prints.
