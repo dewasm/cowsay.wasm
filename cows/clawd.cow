@@ -1,11 +1,10 @@
 ##
 ## Clawd, the Claude Code crab.
-## An original addition of cowsay.wasm, not part of cowsay 3.03.
+## Our own addition to cowsay.wasm, not part of cowsay 3.03.
 ##
-## Measured from the Claude Code welcome screen sprite: one sprite unit
-## is one full terminal cell, the body a 13x4 rectangle, the arms two
-## cells on its third row, the eyes single black cells, and four
-## one-cell legs.  Everything else is the single coral #d77757.
+## Measured from the Claude Code welcome screen sprite: one sprite unit is one full terminal cell.
+## The body is a 13x4 rectangle, the arms two cells on its third row, the eyes single black cells.
+## Four one-cell legs; everything else is the single coral #d77757.
 ##
 $the_cow = <<"EOC";
   $thoughts

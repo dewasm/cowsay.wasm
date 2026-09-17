@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="428" height="241" viewBox="0 0 428 241" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">
+  <rect width="428" height="241" rx="6" fill="#282c34"/>
+  <text x="16" y="30" fill="#7f848e" xml:space="preserve" textLength="378" lengthAdjust="spacingAndGlyphs">$ cowsay -f clawd "Hello from cowsay.wasm"</text>
+  <text x="16" y="49" fill="#d8d5d0" xml:space="preserve" textLength="234" lengthAdjust="spacingAndGlyphs"> ________________________ </text>
+  <text x="16" y="68" fill="#d8d5d0" xml:space="preserve" textLength="234" lengthAdjust="spacingAndGlyphs">&lt; Hello from cowsay.wasm &gt;</text>
+  <text x="16" y="87" fill="#d8d5d0" xml:space="preserve" textLength="234" lengthAdjust="spacingAndGlyphs"> ------------------------ </text>
+  <text x="16" y="106" fill="#d8d5d0" xml:space="preserve" textLength="27" lengthAdjust="spacingAndGlyphs">  \</text>
+  <text x="16" y="125" fill="#d8d5d0" xml:space="preserve" textLength="36" lengthAdjust="spacingAndGlyphs">   \</text>
+  <rect x="52" y="130" width="117" height="19" fill="#d77757"/>
+  <rect x="52" y="149" width="18" height="19" fill="#d77757"/>
+  <rect x="70" y="149" width="9" height="19" fill="#000000"/>
+  <rect x="79" y="149" width="63" height="19" fill="#d77757"/>
+  <rect x="142" y="149" width="9" height="19" fill="#000000"/>
+  <rect x="151" y="149" width="18" height="19" fill="#d77757"/>
+  <rect x="34" y="168" width="153" height="19" fill="#d77757"/>
+  <rect x="52" y="187" width="117" height="19" fill="#d77757"/>
+  <rect x="70" y="206" width="9" height="19" fill="#d77757"/>
+  <rect x="88" y="206" width="9" height="19" fill="#d77757"/>
+  <rect x="124" y="206" width="9" height="19" fill="#d77757"/>
+  <rect x="142" y="206" width="9" height="19" fill="#d77757"/>
+</svg>

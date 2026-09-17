@@ -6,6 +6,13 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint the scripts
+        run: make lint
+
   native:
     runs-on: ubuntu-latest
     steps:
@@ -13,7 +20,7 @@ jobs:
       - name: Build
         run: make cowsay-native
       - name: Differential test against the reference
-        run: bash test/run.sh
+        run: make check-native
 
   wasm:
     runs-on: ubuntu-latest
@@ -35,7 +42,7 @@ jobs:
       - name: Build
         run: make cowsay.wasm
       - name: Differential test under wasmtime
-        run: COWSAY_TEST_MODE=wasm bash test/run.sh
+        run: make check-wasm
       - uses: actions/upload-artifact@v4
         with:
           name: cowsay.wasm

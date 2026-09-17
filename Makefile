@@ -6,7 +6,7 @@ WASM_CFLAGS = $(CFLAGS) -Oz -flto -Wl,--strip-all
 
 COWS = $(sort $(wildcard cows/*.cow))
 
-.PHONY: all check clean
+.PHONY: all check check-native check-wasm lint clean
 
 all: cowsay.wasm
 
@@ -21,8 +21,23 @@ cowsay.wasm: cowsay.c cows_embedded.h
 cowsay-native: cowsay.c cows_embedded.h
 	$(CC) $(CFLAGS) -O2 -o $@ cowsay.c
 
-check: cowsay-native
-	bash test/run.sh
+check: check-native check-wasm
+
+check-native: cowsay-native
+	@bash test/run.sh
+
+check-wasm: cowsay.wasm
+	@COWSAY_TEST_MODE=wasm bash test/run.sh
+
+# The README picture of clawd, whose colors a code block cannot show.
+docs/clawd.svg: cowsay-native tools/ansi-to-svg.pl cows/clawd.cow
+	./cowsay-native -f clawd "Hello from cowsay.wasm" \
+	  | perl tools/ansi-to-svg.pl '$$ cowsay -f clawd "Hello from cowsay.wasm"' > $@
+
+lint:
+	shellcheck test/run.sh tools/embed-cows.sh
+	perl -c test/gen-fuzz.pl
+	perl -c tools/ansi-to-svg.pl
 
 clean:
 	rm -f cowsay.wasm cowsay-native cowthink-native cows_embedded.h
