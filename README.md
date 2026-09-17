@@ -62,7 +62,7 @@ A `-f` value containing `/` always reads the real filesystem.
 A cowfile is a Perl script, but this implementation reads a restricted grammar of it instead.
 [test/README.md](test/README.md) states that grammar in full, and anything outside it is refused.
 
-## cowthink
+## `cowthink`
 
 Like the original, thought bubbles are selected by the program name.
 So an invocation path containing `think`, in any case, switches to `cowthink`.
