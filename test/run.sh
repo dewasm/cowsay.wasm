@@ -281,6 +281,11 @@ t cow-suffix '' -f default.cow moo
 t cow-small-empty-eyes '' -e '' -f small moo
 t cow-three-eyes-e '' -e ab -f three-eyes moo
 t cow-udder-e '' -e ab -f udder moo
+t cow-clawd-eyes '' -e '><' -f clawd moo
+t cow-clawd-one-eye '' -e X -f clawd moo
+t cow-clawd-no-eyes '' -e '' -f clawd moo
+t cow-clawd-default-eyes '' -e oo -f clawd moo
+t cow-clawd-dead '' -d -f clawd moo
 t cow-missing '' -f nosuch moo
 # Deliberate fix: a missing path with a slash is an error (the reference exits 0 with no cow).
 fixed cow-slash-missing 2 '' -f /no/such/file.cow moo

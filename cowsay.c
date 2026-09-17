@@ -99,6 +99,17 @@ static size_t u8_count(const char *s, size_t n) {
   return units;
 }
 
+/* The codepoint at `index`, as a fresh string, empty past the end, like Perl substr($s, $i, 1). */
+static char *u8_unit_at(const char *s, size_t index) {
+  size_t n = strlen(s), i = 0;
+  while (index > 0 && i < n) {
+    i += u8_len_at(s, n, i);
+    index--;
+  }
+  if (i >= n) return xstrndup("", 0);
+  return xstrndup(s + i, u8_len_at(s, n, i));
+}
+
 /* First `units` codepoints of s, as a fresh string: Perl substr($s, 0, 2) lifted to codepoints. */
 static char *u8_prefix(const char *s, size_t units) {
   size_t n = strlen(s), i = 0;
@@ -368,6 +379,12 @@ static char *chop_unit(char *s) {
   return out;
 }
 
+// Whether a statement ends here: only the line's own newline may follow.
+static int end_of_stmt(const char *p) {
+  while (*p == ' ' || *p == '\t') p++;
+  return *p == '\0' || *p == '\n';
+}
+
 static const char *skip_ws(const char *p) {
   while (*p == ' ' || *p == '\t') p++;
   return p;
@@ -385,6 +402,16 @@ static int is_ident_start(char c) {
 }
 
 static int is_ident(char c) { return is_ident_start(c) || (c >= '0' && c <= '9'); }
+
+/* A double-quoted literal, as the statement idioms write it; no cowfile needs escapes there. */
+static char *match_string(const char **p) {
+  if (**p != '"') return NULL;
+  const char *end = strchr(*p + 1, '"');
+  if (!end) return NULL;
+  char *lit = xstrndup(*p + 1, (size_t)(end - *p - 1));
+  *p = end + 1;
+  return lit;
+}
 
 static char *match_ident(const char **p) {
   const char *s = *p;
@@ -471,102 +498,139 @@ static void interpolate_body_line(Buf *out, const char *line, size_t n, int line
   }
 }
 
+/* Append to $eyes, which every append idiom writes to. */
+static void eyes_append(const char *s, size_t n) {
+  Buf b = {0};
+  buf_append(&b, eyes, strlen(eyes));
+  buf_append(&b, s, n);
+  free(eyes);
+  eyes = b.p;
+}
+
 /* Parse one preamble statement; returns 1 if recognized.
- * Chopped characters land in the cow variable table, so a cowfile can chop more than once.
+ * Chopped and extracted characters land in the cow variable table, so a cowfile can take several.
  */
 static int parse_preamble_stmt(const char *line) {
   const char *p = skip_ws(line);
-  // $<var> = chop($eyes);
-  if (*p == '$') {
-    const char *q = p + 1;
-    char *name = match_ident(&q);
-    if (name && strcmp(name, "the_cow") != 0 && strcmp(name, "eyes") != 0) {
-      q = skip_ws(q);
-      if (match_lit(&q, "=")) {
-        q = skip_ws(q);
-        if (match_lit(&q, "chop($eyes);")) {
-          q = skip_ws(q);
-          if (*q == '\0' || *q == '\n') {
-            set_cow_var(name, chop_unit(eyes));
-            return 1;
-          }
-        }
-      }
-    }
-    free(name);
-  }
-  // $eyes .= ($<var> x 2);   and   $eyes .= " $<var>";
-  const char *q = p;
-  if (match_lit(&q, "$eyes")) {
-    q = skip_ws(q);
-    if (match_lit(&q, ".=")) {
-      q = skip_ws(q);
-      if (*q == '(' && q[1] == '$') {
-        const char *r = q + 2;
-        char *name = match_ident(&r);
-        const char *v = name ? get_cow_var(name) : NULL;
-        r = skip_ws(r);
-        if (v && match_lit(&r, "x") && (r = skip_ws(r), match_lit(&r, "2);")) &&
-          (r = skip_ws(r), *r == '\0' || *r == '\n')) {
-          Buf b = {0};
-          buf_append(&b, eyes, strlen(eyes));
-          buf_append(&b, v, strlen(v));
-          buf_append(&b, v, strlen(v));
-          free(eyes);
-          eyes = b.p;
-          free(name);
-          return 1;
-        }
-        free(name);
-      } else if (*q == '"') {
-        // $eyes .= " $<var>"; with one or more spaces (udder.cow uses one, clawd.cow two).
-        const char *sp = q + 1;
-        const char *r = sp;
-        while (*r == ' ') r++;
-        size_t nsp = (size_t)(r - sp);
-        if (nsp > 0 && *r == '$') {
-          r++;
-          char *name = match_ident(&r);
-          const char *v = name ? get_cow_var(name) : NULL;
-          if (v && match_lit(&r, "\";") && (r = skip_ws(r), *r == '\0' || *r == '\n')) {
-            Buf b = {0};
-            buf_append(&b, eyes, strlen(eyes));
-            buf_append(&b, sp, nsp);
-            buf_append(&b, v, strlen(v));
-            free(eyes);
-            eyes = b.p;
-            free(name);
-            return 1;
-          }
-          free(name);
-        }
-      }
-    }
-    // $eyes = "<lit>" unless ($eyes);
-    q = p;
-    match_lit(&q, "$eyes");
+  if (*p != '$') return 0;
+
+  // $<var> = chop($eyes);   and   $<var> = substr($eyes, <n>, 1);
+  const char *q = p + 1;
+  char *name = match_ident(&q);
+  if (name && strcmp(name, "the_cow") != 0 && strcmp(name, "eyes") != 0) {
     q = skip_ws(q);
     if (match_lit(&q, "=")) {
-      q = skip_ws(q);
-      if (*q == '"') {
-        const char *r = strchr(q + 1, '"');
-        if (r) {
-          char *lit = xstrndup(q + 1, (size_t)(r - q - 1));
-          const char *s2 = r + 1;
-          s2 = skip_ws(s2);
-          if (match_lit(&s2, "unless") && (s2 = skip_ws(s2), match_lit(&s2, "($eyes);")) &&
-            (s2 = skip_ws(s2), *s2 == '\0' || *s2 == '\n')) {
-            if (eyes[0] == '\0') {
-              free(eyes);
-              eyes = lit;
-            } else {
-              free(lit);
-            }
+      const char *r = skip_ws(q);
+      if (match_lit(&r, "chop($eyes);") && end_of_stmt(r)) {
+        set_cow_var(name, chop_unit(eyes));
+        return 1;
+      }
+      r = skip_ws(q);
+      if (match_lit(&r, "substr($eyes,")) {
+        r = skip_ws(r);
+        size_t at = 0, digits = 0;
+        while (*r >= '0' && *r <= '9') {
+          at = at * 10 + (size_t)(*r++ - '0');
+          digits++;
+        }
+        r = skip_ws(r);
+        if (digits && *r == ',') {
+          r = skip_ws(r + 1);
+          if (match_lit(&r, "1") && (r = skip_ws(r), match_lit(&r, ");")) && end_of_stmt(r)) {
+            set_cow_var(name, u8_unit_at(eyes, at));
             return 1;
           }
-          free(lit);
         }
       }
+    }
+  }
+  free(name);
+
+  // Every remaining idiom assigns to $eyes.
+  q = p;
+  if (!match_lit(&q, "$eyes")) return 0;
+  q = skip_ws(q);
+
+  // $eyes .= ($<var> x 2);   $eyes .= " $<var>";   and   $eyes .= "<literal>";
+  const char *tail = q;
+  if (match_lit(&tail, ".=")) {
+    const char *r = skip_ws(tail);
+    if (*r == '(' && r[1] == '$') {
+      const char *v_start = r + 2;
+      char *var = match_ident(&v_start);
+      const char *value = var ? get_cow_var(var) : NULL;
+      v_start = skip_ws(v_start);
+      if (value && match_lit(&v_start, "x") &&
+        (v_start = skip_ws(v_start), match_lit(&v_start, "2);")) && end_of_stmt(v_start)) {
+        eyes_append(value, strlen(value));
+        eyes_append(value, strlen(value));
+        free(var);
+        return 1;
+      }
+      free(var);
+    }
+    r = skip_ws(tail);
+    char *lit = match_string(&r);
+    if (lit && match_lit(&r, ";") && end_of_stmt(r)) {
+      // Spaces then a variable set above interpolate; a literal without one is appended as it is.
+      const char *dollar = strchr(lit, '$');
+      if (!dollar) {
+        eyes_append(lit, strlen(lit));
+        free(lit);
+        return 1;
+      }
+      size_t spaces = (size_t)(dollar - lit);
+      if (spaces > 0 && strspn(lit, " ") == spaces) {
+        const char *v_start = dollar + 1;
+        char *var = match_ident(&v_start);
+        const char *value = var ? get_cow_var(var) : NULL;
+        if (value && *v_start == '\0') {
+          eyes_append(lit, spaces);
+          eyes_append(value, strlen(value));
+          free(var);
+          free(lit);
+          return 1;
+        }
+        free(var);
+      }
+    }
+    free(lit);
+  }
+
+  // $eyes = "<literal>" unless ($eyes);   and   $eyes = "<literal>" if ($eyes eq "<literal>");
+  tail = q;
+  if (match_lit(&tail, "=")) {
+    const char *r = skip_ws(tail);
+    char *lit = match_string(&r);
+    if (lit) {
+      const char *cond = skip_ws(r);
+      if (match_lit(&cond, "unless") && (cond = skip_ws(cond), match_lit(&cond, "($eyes);")) &&
+        end_of_stmt(cond)) {
+        if (eyes[0] == '\0') {
+          free(eyes);
+          eyes = lit;
+        } else {
+          free(lit);
+        }
+        return 1;
+      }
+      cond = skip_ws(r);
+      if (match_lit(&cond, "if") && (cond = skip_ws(cond), match_lit(&cond, "($eyes eq"))) {
+        cond = skip_ws(cond);
+        char *want = match_string(&cond);
+        if (want && (cond = skip_ws(cond), match_lit(&cond, ");")) && end_of_stmt(cond)) {
+          if (strcmp(eyes, want) == 0) {
+            free(eyes);
+            eyes = lit;
+          } else {
+            free(lit);
+          }
+          free(want);
+          return 1;
+        }
+        free(want);
+      }
+      free(lit);
     }
   }
   return 0;

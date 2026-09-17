@@ -6,11 +6,16 @@
 ## The body is a 13x4 rectangle, the arms two cells on its third row, the eyes single black cells.
 ## Four one-cell legs; everything else is the single coral #d77757.
 ##
+## The eye cells are plain by default; -e and the face flags fill them, first character on the left.
+$eyes = "  " if ($eyes eq "oo");
+$eyes .= "  ";
+$eye1 = substr($eyes, 0, 1);
+$eye2 = substr($eyes, 1, 1);
 $the_cow = <<"EOC";
   $thoughts
    $thoughts
     \e[38;2;215;119;87m█████████████\e[0m
-    \e[38;2;215;119;87m██\e[48;2;0;0;0m \e[49m███████\e[48;2;0;0;0m \e[49m██\e[0m
+    \e[38;2;215;119;87m██\e[48;2;0;0;0m\e[97m$eye1\e[49m\e[38;2;215;119;87m███████\e[48;2;0;0;0m\e[97m$eye2\e[49m\e[38;2;215;119;87m██\e[0m
   \e[38;2;215;119;87m█████████████████\e[0m
     \e[38;2;215;119;87m█████████████\e[0m
       \e[38;2;215;119;87m█ █   █ █\e[0m

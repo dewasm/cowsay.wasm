@@ -70,6 +70,7 @@ This implementation counts Unicode codepoints instead and never splits a UTF-8 s
 - Balloon padding and wrap positions count one column per codepoint.
 - Breaking an overlong word happens at a codepoint boundary.
 - `-e` and `-T` truncate to two codepoints, not two bytes.
+- `chop` and `substr` in a cowfile take a whole codepoint as well.
 - A byte that forms no valid UTF-8 sequence counts as one column, and passes through unchanged.
   Arbitrary byte input therefore still works.
 
@@ -94,9 +95,13 @@ Once the terminator line closes the heredoc, only comments and blank lines may f
 The assignments before it are the eye idioms that the shipped cowfiles use:
 
 - `$var = chop($eyes);` moves the last character of `$eyes` into a variable of any other name.
+- `$var = substr($eyes, 0, 1);` copies the character at that position instead, as `clawd.cow` does.
 - `$eyes .= ($var x 2);` appends that character twice, as `three-eyes.cow` does.
 - `$eyes .= " $var";` appends it after one or more spaces, as `udder.cow` does with one.
+- `$eyes .= "  ";` appends a literal, which `clawd.cow` uses to pad `$eyes` out to two characters.
 - `$eyes = "..." unless ($eyes);` fills in a default, as `small.cow` does.
+- `$eyes = "..." if ($eyes eq "...");` replaces one value with another;
+  `clawd.cow` blanks the default `oo` that way, so its eye cells stay plain until `-e` fills them.
 
 Inside the heredoc body:
 
