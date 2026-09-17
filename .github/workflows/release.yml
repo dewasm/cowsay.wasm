@@ -24,9 +24,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y binaryen
       - name: Build
         run: make cowsay.wasm
-      - name: Checksum
-        run: shasum -a 256 cowsay.wasm > cowsay.wasm.sha256
-      - name: Upload release assets
+      # No checksum file: GitHub reports each asset's sha256 in the releases API digest field.
+      - name: Upload release asset
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes cowsay.wasm cowsay.wasm.sha256
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes cowsay.wasm
