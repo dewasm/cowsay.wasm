@@ -14,6 +14,10 @@
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
+
+# Column widths depend on the environment, and a wasm run sees none of it, so neither does a native run.
+# The width cases below hand in what they need one at a time.
+unset LANG LC_ALL LC_CTYPE COWSAY_AMBIGUOUS_WIDTH
 ROOT=$PWD
 COWS=$ROOT/cows
 REF=$ROOT/test/reference/cowsay
@@ -111,25 +115,33 @@ run_ref() { # <think> <stdin-file> [args...]
   echo $? >"$TMP/ref.code"
 }
 
+# WIDTH_ENV names the variables a width case wants handed to the binary, as NAME=VALUE words.
+WIDTH_ENV=
+
 run_ours() { # <think> <path|embedded> <stdin-file> [args...]
   local think=$1 cpmode=$2 in=$3
   shift 3
+  local wasm_env=() native_env=() kv
+  for kv in $WIDTH_ENV; do
+    wasm_env+=(--env "$kv")
+    native_env+=("$kv")
+  done
   if [ "$MODE" = wasm ]; then
     local mod=$TMP/cowsay
     [ "$think" = 1 ] && mod=$TMP/cowthink.wasm
     if [ "$cpmode" = path ]; then
-      wasmtime run --dir "$COWS::$COWS" --env COWPATH="$COWS" "$mod" "$@" \
+      wasmtime run --dir "$COWS::$COWS" --env COWPATH="$COWS" ${wasm_env+"${wasm_env[@]}"} "$mod" "$@" \
         <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     else
-      wasmtime run "$mod" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
+      wasmtime run ${wasm_env+"${wasm_env[@]}"} "$mod" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     fi
   else
     local bin=$TMP/cowsay
     [ "$think" = 1 ] && bin=$TMP/cowthink-native
     if [ "$cpmode" = path ]; then
-      COWPATH=$COWS "$bin" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
+      env COWPATH="$COWS" ${native_env+"${native_env[@]}"} "$bin" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     else
-      env -u COWPATH "$bin" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
+      env -u COWPATH ${native_env+"${native_env[@]}"} "$bin" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     fi
   fi
   echo $? >"$TMP/got.code"
@@ -345,11 +357,36 @@ utf8() { # <name> <stdin-string> [args...]
   fi
 }
 
+utf8_env() { # <NAME=VALUE...> -- <name> <stdin-string> [args...]
+  local saved=$WIDTH_ENV
+  WIDTH_ENV=
+  while [ "$1" != -- ]; do
+    WIDTH_ENV="$WIDTH_ENV $1"
+    shift
+  done
+  shift
+  utf8 "$@"
+  WIDTH_ENV=$saved
+}
+
 utf8 latin '' 'héllo wörld, ça va très bien aujourdʼhui'
 utf8 cjk '' 'こんにちは世界'
 utf8 wrap-boundary '' -W 10 'ééééééééééééééééééééééééé'
 utf8 eyes '' -e 'øø' moo
 utf8 mixed $'Ünïcödé line one\nsecond line ここ\n'
+# Widths are per grapheme cluster, so a combining mark, a flag and a ZWJ sequence each stay whole.
+utf8 combining '' -W 12 'éééééééééééééééé'
+utf8 cjk-wrap '' -W 12 '日本語のテキストを折り返す'
+utf8 emoji '' '👨‍👩‍👧 family, 🇯🇵 flag, 1️⃣ keycap'
+utf8 emoji-wrap '' -W 10 '🐄🐄🐄🐄🐄🐄🐄🐄'
+# East Asian Ambiguous is one column by default, two under a CJK locale, and the override settles it.
+utf8 ambiguous-default '' '§§§ ±±± °°°'
+utf8_env LANG=ja_JP.UTF-8 -- ambiguous-locale '' '§§§ ±±± °°°'
+utf8_env LANG=ja_JP.UTF-8 COWSAY_AMBIGUOUS_WIDTH=1 -- ambiguous-override '' '§§§ ±±± °°°'
+# An SGR sequence costs no columns, and a colour that survives a line break is reopened on the next line.
+utf8 escape-width '' $'\033[31mred\033[0m and plain'
+utf8 escape-wrap '' -W 24 $'\033[1;31mthis red sentence is long enough to wrap twice over\033[0m'
+utf8 escape-only '' $'\033[31m\033[0m'
 
 section_end
 if [ "$fail" -gt 0 ]; then

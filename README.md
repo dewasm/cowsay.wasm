@@ -35,9 +35,10 @@ $ make lint          # shellcheck the scripts, and compile-check the Perl genera
 ## Behavior
 
 For ASCII input, stdout, stderr and the exit code are identical to cowsay 3.03 under a modern Perl.
-The only exceptions are four deliberate fixes for bugs of the original.
-Non-ASCII input, meanwhile, counts Unicode codepoints where the original counts bytes.
-A UTF-8 sequence is therefore never split in the middle.
+The only exceptions are five deliberate fixes for bugs of the original.
+Non-ASCII input, meanwhile, is measured in terminal columns rather than bytes.
+Grapheme clusters stay whole, East Asian and emoji characters take two columns,
+and an ANSI colour survives a wrapped line.
 For the full specification, and the suite that enforces it, see [test/README.md](test/README.md).
 
 ## Cowfiles

@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 
 #include "cows_embedded.h"
+#include "width.h"
 
 #define VERSION "3.03"
 
@@ -90,15 +91,6 @@ static size_t u8_len_at(const char *s, size_t n, size_t i) {
   return need;
 }
 
-static size_t u8_count(const char *s, size_t n) {
-  size_t i = 0, units = 0;
-  while (i < n) {
-    i += u8_len_at(s, n, i);
-    units++;
-  }
-  return units;
-}
-
 /* The codepoint at `index`, as a fresh string, empty past the end, like Perl substr($s, $i, 1). */
 static char *u8_unit_at(const char *s, size_t index) {
   size_t n = strlen(s), i = 0;
@@ -110,11 +102,11 @@ static char *u8_unit_at(const char *s, size_t index) {
   return xstrndup(s + i, u8_len_at(s, n, i));
 }
 
-/* First `units` codepoints of s, as a fresh string: Perl substr($s, 0, 2) lifted to codepoints. */
+/* First `units` grapheme clusters of s: Perl substr($s, 0, 2) lifted to clusters. */
 static char *u8_prefix(const char *s, size_t units) {
   size_t n = strlen(s), i = 0;
   while (units > 0 && i < n) {
-    i += u8_len_at(s, n, i);
+    i = wu_cluster_end(s, n, i);
     units--;
   }
   return xstrndup(s, i);
@@ -148,14 +140,24 @@ static char *wrap_text(const char *t, size_t n, long *columns) {
     size_t p = pos;
     while (p < n && is_space(t[p])) p++;
     if (p == n) break;
-    // Greedy match: the longest prefix of at most ll units ending at a break or end of input.
+    // Greedy match: the longest prefix of at most ll columns ending at a break or end of input.
+    // A unit here is one grapheme cluster, so a break never lands inside one;
+    // escape sequences ride along at no cost.
     size_t q = pos;
     long units = 0;
     size_t best = (size_t)-1;
-    if (is_space(t[pos])) best = pos; // zero-unit candidate
+    if (is_space(t[pos])) best = pos; // zero-column candidate
     while (units < ll && q < n && t[q] != '\n') {
-      q += u8_len_at(t, n, q);
-      units++;
+      size_t esc = wu_escape_len(t, n, q);
+      if (esc) {
+        q += esc;
+        continue;
+      }
+      size_t end = wu_cluster_end(t, n, q);
+      int w = wu_cluster_width(t, n, q, end);
+      if (units + w > ll) break;
+      q = end;
+      units += w ? w : 1; // a zero-width cluster still has to advance the count
       if (q == n || is_space(t[q])) best = q;
     }
     if (best != (size_t)-1) {
@@ -168,16 +170,14 @@ static char *wrap_text(const char *t, size_t n, long *columns) {
         rem = NULL;
         pos = n;
       }
-    } else if (ll >= 1 && units == ll) {
-      // $huge = 'wrap': cut the overlong word at exactly ll units.
+    } else {
+      // $huge = 'wrap': cut the overlong word where the columns run out.
+      // A cluster wider than the line still goes out whole: not splitting one is the point.
+      if (q == pos) q = wu_cluster_end(t, n, pos);
       if (!first) buf_push(&r, '\n');
       buf_append(&r, t + pos, q - pos);
       rem = NULL; // separator; never survives to the end of the loop
       pos = q;
-    } else {
-      // With ll >= 1 the walk ends at a break candidate or at ll units, so this is unreachable.
-      fputs("cowsay: internal wrap error\n", stderr);
-      exit(70);
     }
     first = 0;
   }
@@ -859,11 +859,21 @@ static void list_cowfiles(void) {
 
 /* ---------- balloon ---------- */
 
+/* The rendition a wrapped line inherits from the lines above it. */
+static WuSgr balloon_sgr;
+
 static void emit_balloon_line(Buf *b, const char *bl, const char *s, size_t padw, const char *br) {
+  char open[96];
+  wu_sgr_render(&balloon_sgr, open, sizeof open);
   buf_append(b, bl, strlen(bl));
   buf_push(b, ' ');
+  // Reopening at the start and closing at the end keeps a colour running down the balloon
+  // while the frame and the padding stay in the terminal's own colours.
+  buf_append(b, open, strlen(open));
   buf_append(b, s, strlen(s));
-  size_t units = u8_count(s, strlen(s));
+  wu_sgr_scan(&balloon_sgr, s, strlen(s));
+  if (wu_sgr_active(&balloon_sgr)) buf_append(b, "\033[0m", 4);
+  size_t units = wu_display_width(s, strlen(s));
   if (units < padw) buf_repeat(b, ' ', padw - units);
   buf_push(b, ' ');
   buf_append(b, br, strlen(br));
@@ -871,9 +881,10 @@ static void emit_balloon_line(Buf *b, const char *bl, const char *s, size_t padw
 }
 
 static char *construct_balloon(char **lines, size_t n, int think) {
+  wu_sgr_clear(&balloon_sgr);
   long max = -1;
   for (size_t i = 0; i < n; i++) {
-    long l = (long)u8_count(lines[i], strlen(lines[i]));
+    long l = (long)wu_display_width(lines[i], strlen(lines[i]));
     if (l > max) max = l;
   }
   // max stays -1 for an empty message;
@@ -951,7 +962,28 @@ static long numify(const char *s) {
   return strtol(s, NULL, 10);
 }
 
+/* East Asian Ambiguous characters take one column, per Unicode's default.
+ * A CJK locale makes them two, as terminals and older libc implementations do, and
+ * COWSAY_AMBIGUOUS_WIDTH=1 or =2 settles it outright.
+ * A wasm runtime passes no environment unless asked, so the default holds until one arrives. */
+static int ambiguous_is_wide(void) {
+  const char *override = getenv("COWSAY_AMBIGUOUS_WIDTH");
+  if (override && *override) return *override == '2';
+  const char *locale = getenv("LC_ALL");
+  if (!locale || !*locale) locale = getenv("LC_CTYPE");
+  if (!locale || !*locale) locale = getenv("LANG");
+  if (!locale) return 0;
+  static const char *cjk[] = {"ja", "ko", "zh"};
+  for (size_t i = 0; i < sizeof cjk / sizeof cjk[0]; i++) {
+    size_t len = strlen(cjk[i]);
+    if (strncmp(locale, cjk[i], len) != 0) continue;
+    if (locale[len] == '\0' || locale[len] == '_' || locale[len] == '.') return 1;
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
+  wu_set_ambiguous_wide(ambiguous_is_wide());
   if (argc > 0 && argv[0] && argv[0][0]) argv0 = argv[0];
   progname = basename_of(argv0);
   int think = contains_think(argv0);

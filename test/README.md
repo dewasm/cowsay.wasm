@@ -13,6 +13,9 @@ Each case compares all three channels against the reference.
 To do that it runs this implementation twice: with `COWPATH` pointing at `cows/`, then without it.
 Those two runs cover the real-filesystem lookup and the embedded cowfiles respectively.
 A case whose output names the cowfile directory, such as `-l`, skips the embedded run.
+The suite clears `LANG`, `LC_ALL`, `LC_CTYPE` and `COWSAY_AMBIGUOUS_WIDTH` first;
+a wasm run sees no environment, so a native run must not read the machine's.
+The width cases hand in what they need one at a time.
 
 | Path | What it holds |
 | --- | --- |
@@ -20,6 +23,8 @@ A case whose output names the cowfile directory, such as `-l`, skips the embedde
 | `fixed/` | snapshots of the deliberate fixes, which diverge from the reference on purpose |
 | `utf8/` | snapshots of the UTF-8 behavior, which the byte-based reference cannot define |
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
+| `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
+| `unicode/` | `GraphemeBreakTest.txt` as published, the data that test reads |
 
 The fuzz generator stays inside the specification.
 It therefore emits neither a width below 2 nor a first message word of `0`;
@@ -55,6 +60,9 @@ The following behaviors of the reference are bugs with no value to preserve and 
 - A usage error exits with `EX_USAGE` (64) rather than the reference's 255;
   WASI preview 1 cannot represent a status that high.
   The usage text also drops a stray trailing space, carried over from the reference's heredoc.
+- An ANSI escape sequence counts as no columns, and an open colour carries across a wrapped line.
+  The reference counts those bytes as text, so the balloon widens by the length of the sequence;
+  the rest of the message also loses its colour at the first break.
 
 ### Outside the specification
 
@@ -62,21 +70,44 @@ The following behaviors of the reference are bugs with no value to preserve and 
 - Malformed cowfiles: the reference reports a Perl error; this implementation reports its own.
 - `-W` values that are not a decimal integer with optional sign; the leading integer prefix is used.
 
-## UTF-8 behavior
+## Display width
 
-The reference counts bytes and can split a multi-byte character when breaking an overlong word.
-This implementation counts Unicode codepoints instead and never splits a UTF-8 sequence:
+The reference counts bytes, so a combining mark widens the balloon and a CJK character narrows it,
+and an overlong word breaks in the middle of a character.
+This implementation counts the columns a terminal uses, per Unicode 18.0.0:
 
-- Balloon padding and wrap positions count one column per codepoint.
-- Breaking an overlong word happens at a codepoint boundary.
-- `-e` and `-T` truncate to two codepoints, not two bytes.
-- `chop` and `substr` in a cowfile take a whole codepoint as well.
-- A byte that forms no valid UTF-8 sequence counts as one column, and passes through unchanged.
-  Arbitrary byte input therefore still works.
+- Text is measured in **extended grapheme clusters** (UAX #29), so a line never breaks inside one.
+- A cluster takes the width of its base character: two columns for East Asian Wide and Fullwidth,
+  zero for a combining mark or another zero-width character, one otherwise.
+- The emoji rules override that: a cluster carrying U+FE0F takes two columns and U+FE0E one,
+  while a regional indicator pair, or a pictograph with emoji presentation, takes two.
+- `-e` and `-T` truncate to two clusters, so a mark stays with the character it belongs to.
+- A byte that forms no valid UTF-8 sequence counts as one column and passes through unchanged,
+  so arbitrary byte input still works.
+- `chop` and `substr` in a cowfile still take one codepoint, matching what Perl does to `$eyes`.
 
-Grapheme clusters and East Asian width are intentionally out of scope.
-A combining mark or a double-width character therefore still counts as one column.
-ASCII input is unaffected either way, since there a byte and a codepoint are the same thing.
+ASCII input is unaffected, since there a byte, a codepoint and a column are the same thing.
+
+### East Asian Ambiguous
+
+An Ambiguous character takes one column, which is Unicode's default and what a terminal assumes.
+Two settings widen it to two, the first that applies winning:
+
+1. `COWSAY_AMBIGUOUS_WIDTH=2` (or `=1` to keep it narrow) settles it outright.
+2. `LC_ALL`, `LC_CTYPE` or `LANG`, in that order, naming a `ja`, `ko` or `zh` locale.
+
+A wasm runtime hands the guest no environment unless asked,
+so under `wasmtime run` the default holds until `--env` passes one in.
+
+### ANSI escape sequences
+
+An escape sequence occupies no columns, so a coloured message wraps by what it shows.
+CSI and OSC sequences are recognized; the parameters of anything else pass through untouched.
+
+A colour still open when a line wraps is reopened on the next line and closed at its end.
+It therefore runs down the balloon, while the frame and the padding keep the terminal's own colours.
+Foreground, background, and the bold, dim, italic, underline, reverse and strikethrough attributes
+carry across; anything else passes through without being carried.
 
 ## Cowfile grammar
 
