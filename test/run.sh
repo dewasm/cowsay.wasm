@@ -242,6 +242,11 @@ fixed width-0 0 '' -W 0 tiny width
 fixed width-1 0 '' -W 1 tiny width
 fixed width-junk 0 '' -W abc tiny width
 fixed width-negative 0 '' -W -5 tiny width
+# Deliberate fix: an SGR sequence costs no columns, and a colour still open at a wrap is
+# reopened on the next line (the reference counts the escape bytes as text).
+fixed escape-width 0 '' $'\033[31mred\033[0m and plain'
+fixed escape-wrap 0 '' -W 24 $'\033[1;31mthis red sentence is long enough to wrap twice over\033[0m'
+fixed escape-only 0 '' $'\033[31m\033[0m'
 
 section stdin
 t stdin-multiline $'line one\nline two\nline three\n'
@@ -383,10 +388,6 @@ utf8 emoji-wrap '' -W 10 '🐄🐄🐄🐄🐄🐄🐄🐄'
 utf8 ambiguous-default '' '§§§ ±±± °°°'
 utf8_env LANG=ja_JP.UTF-8 -- ambiguous-locale '' '§§§ ±±± °°°'
 utf8_env LANG=ja_JP.UTF-8 COWSAY_AMBIGUOUS_WIDTH=1 -- ambiguous-override '' '§§§ ±±± °°°'
-# An SGR sequence costs no columns, and a colour that survives a line break is reopened on the next line.
-utf8 escape-width '' $'\033[31mred\033[0m and plain'
-utf8 escape-wrap '' -W 24 $'\033[1;31mthis red sentence is long enough to wrap twice over\033[0m'
-utf8 escape-only '' $'\033[31m\033[0m'
 
 section_end
 if [ "$fail" -gt 0 ]; then
