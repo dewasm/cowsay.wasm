@@ -21,7 +21,7 @@ The width cases hand in what they need one at a time.
 | --- | --- |
 | `reference/cowsay` | cowsay 3.03 unmodified, the reference every differential case runs against |
 | `fixed/` | snapshots of the deliberate fixes, which diverge from the reference on purpose |
-| `utf8/` | snapshots of the display width of non-ASCII text, which the byte-based reference cannot define |
+| `utf8/` | snapshots of non-ASCII width, which the byte-based reference cannot define |
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
 | `unicode/` | `GraphemeBreakTest.txt` as published, the data that test reads |
