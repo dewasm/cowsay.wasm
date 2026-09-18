@@ -338,9 +338,9 @@ for dir in "$FUZZ"/*/; do
   report "fuzz-$(basename "$dir")" embedded ${args+"${args[@]}"}
 done
 
-# The reference is byte-based here, so these cases check our own specification instead.
-section utf8
-utf8() { # <name> <stdin-string> [args...]
+# The reference measures bytes, so it cannot describe any of this; these cases check our own specification.
+section width
+width_case() { # <name> <stdin-string> [args...]
   local name=$1 stdin=$2
   shift 2
   printf '%s' "$stdin" >"$TMP/in"
@@ -350,19 +350,19 @@ utf8() { # <name> <stdin-string> [args...]
     exit(utf8::decode($s) ? 0 : 1);
   ' <"$TMP/got.out"; then
     tick failed
-    echo "FAIL: utf8-$name produced invalid UTF-8" >>"$FAILLOG"
-  elif ! cmp -s "$TMP/got.out" "test/utf8/$name.expected"; then
+    echo "FAIL: width-$name produced invalid UTF-8" >>"$FAILLOG"
+  elif ! cmp -s "$TMP/got.out" "test/width/$name.expected"; then
     tick failed
     {
-      echo "FAIL: utf8-$name differs from test/utf8/$name.expected"
-      diff -u "test/utf8/$name.expected" "$TMP/got.out" | head -20 | sed 's/^/  /'
+      echo "FAIL: width-$name differs from test/width/$name.expected"
+      diff -u "test/width/$name.expected" "$TMP/got.out" | head -20 | sed 's/^/  /'
     } >>"$FAILLOG"
   else
     tick ok
   fi
 }
 
-utf8_env() { # <NAME=VALUE...> -- <name> <stdin-string> [args...]
+width_env() { # <NAME=VALUE...> -- <name> <stdin-string> [args...]
   local saved=$WIDTH_ENV
   WIDTH_ENV=
   while [ "$1" != -- ]; do
@@ -370,24 +370,24 @@ utf8_env() { # <NAME=VALUE...> -- <name> <stdin-string> [args...]
     shift
   done
   shift
-  utf8 "$@"
+  width_case "$@"
   WIDTH_ENV=$saved
 }
 
-utf8 latin '' 'héllo wörld, ça va très bien aujourdʼhui'
-utf8 cjk '' 'こんにちは世界'
-utf8 wrap-boundary '' -W 10 'ééééééééééééééééééééééééé'
-utf8 eyes '' -e 'øø' moo
-utf8 mixed $'Ünïcödé line one\nsecond line ここ\n'
+width_case latin '' 'héllo wörld, ça va très bien aujourdʼhui'
+width_case cjk '' 'こんにちは世界'
+width_case wrap-boundary '' -W 10 'ééééééééééééééééééééééééé'
+width_case eyes '' -e 'øø' moo
+width_case mixed $'Ünïcödé line one\nsecond line ここ\n'
 # Widths are per grapheme cluster, so a combining mark, a flag and a ZWJ sequence each stay whole.
-utf8 combining '' -W 12 'éééééééééééééééé'
-utf8 cjk-wrap '' -W 12 '日本語のテキストを折り返す'
-utf8 emoji '' '👨‍👩‍👧 family, 🇯🇵 flag, 1️⃣ keycap'
-utf8 emoji-wrap '' -W 10 '🐄🐄🐄🐄🐄🐄🐄🐄'
+width_case combining '' -W 12 'éééééééééééééééé'
+width_case cjk-wrap '' -W 12 '日本語のテキストを折り返す'
+width_case emoji '' '👨‍👩‍👧 family, 🇯🇵 flag, 1️⃣ keycap'
+width_case emoji-wrap '' -W 10 '🐄🐄🐄🐄🐄🐄🐄🐄'
 # East Asian Ambiguous is one column by default, two under a CJK locale, and the override settles it.
-utf8 ambiguous-default '' '§§§ ±±± °°°'
-utf8_env LANG=ja_JP.UTF-8 -- ambiguous-locale '' '§§§ ±±± °°°'
-utf8_env LANG=ja_JP.UTF-8 COWSAY_AMBIGUOUS_WIDTH=1 -- ambiguous-override '' '§§§ ±±± °°°'
+width_case ambiguous-default '' '§§§ ±±± °°°'
+width_env LANG=ja_JP.UTF-8 -- ambiguous-locale '' '§§§ ±±± °°°'
+width_env LANG=ja_JP.UTF-8 COWSAY_AMBIGUOUS_WIDTH=1 -- ambiguous-override '' '§§§ ±±± °°°'
 
 section_end
 if [ "$fail" -gt 0 ]; then
