@@ -5,15 +5,57 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "../width.h"
 
-static int failures = 0;
-static int checks = 0;
+/* The progress display mirrors test/run.sh: a line of dots per section,
+ * with the failures held to the end. */
+static const char *c_ok = "", *c_bad = "", *c_name = "", *c_dim = "", *c_off = "";
+static const int dots_per_line = 64;
+static const int label_width = 10;
 
+static int failures = 0, checks = 0;
+static int section_pass = 0, section_fail = 0, section_dots = 0;
+static const char *section_name = NULL;
+static char faillog[64 * 1024];
+static size_t faillog_len = 0;
+
+static void section_end(void) {
+  if (!section_name) return;
+  printf("%s", c_off);
+  if (section_fail == 0) printf(" %s%d ok%s\n", c_dim, section_pass, c_off);
+  else printf(" %s%d failed%s, %d ok\n", c_bad, section_fail, c_off, section_pass);
+  section_name = NULL;
+}
+
+static void section(const char *name) {
+  section_end();
+  section_name = name;
+  section_pass = section_fail = section_dots = 0;
+  printf("%s%-*s%s %s", c_name, label_width, name, c_off, c_ok);
+}
+
+static void tick(int ok) {
+  checks++;
+  if (ok) {
+    section_pass++;
+    printf(".");
+  } else {
+    section_fail++;
+    failures++;
+    printf("%sF%s", c_bad, c_ok);
+  }
+  if (++section_dots % dots_per_line == 0) printf("\n%*s ", label_width, "");
+  fflush(stdout);
+}
+
+/* Failures are held back so they cannot break a line of dots apart. */
 static void fail(const char *what, const char *detail) {
-  printf("FAIL: %s: %s\n", what, detail);
-  failures++;
+  faillog_len += (size_t)snprintf(faillog + faillog_len, sizeof faillog - faillog_len,
+                                  "FAIL: %s: %s\n", what, detail);
+  tick(0);
 }
 
 /* Encode a codepoint as UTF-8, returning the bytes written. */
@@ -67,10 +109,11 @@ static void run_break_case(const char *line, int lineno) {
     if (i == len) break;
     i = wu_cluster_end(text, len, i);
   }
-  checks++;
   int same = got_count == expected_count;
   for (size_t k = 0; same && k < got_count; k++) same = got[k] == expected[k];
-  if (!same) {
+  if (same) {
+    tick(1);
+  } else {
     char detail[256];
     snprintf(detail, sizeof detail, "line %d: %.80s", lineno, line);
     fail("GraphemeBreakTest", detail);
@@ -78,9 +121,10 @@ static void run_break_case(const char *line, int lineno) {
 }
 
 static void check_width(const char *label, const char *text, size_t expect) {
-  checks++;
   size_t got = wu_display_width(text, strlen(text));
-  if (got != expect) {
+  if (got == expect) {
+    tick(1);
+  } else {
     char detail[160];
     snprintf(detail, sizeof detail, "%s: want %zu columns, got %zu", label, expect, got);
     fail("width", detail);
@@ -88,13 +132,14 @@ static void check_width(const char *label, const char *text, size_t expect) {
 }
 
 static void check_sgr(const char *label, const char *text, const char *expect) {
-  checks++;
   WuSgr st;
   wu_sgr_clear(&st);
   wu_sgr_scan(&st, text, strlen(text));
   char out[96];
   wu_sgr_render(&st, out, sizeof out);
-  if (strcmp(out, expect) != 0) {
+  if (strcmp(out, expect) == 0) {
+    tick(1);
+  } else {
     char detail[256];
     snprintf(detail, sizeof detail, "%s: want \"%s\", got \"%s\"", label, expect, out);
     fail("sgr", detail);
@@ -102,11 +147,23 @@ static void check_sgr(const char *label, const char *text, const char *expect) {
 }
 
 int main(void) {
+  if (isatty(1) && !getenv("NO_COLOR")) {
+    c_ok = "\033[32m";
+    c_bad = "\033[31m";
+    c_name = "\033[1m";
+    c_dim = "\033[2m";
+    c_off = "\033[0m";
+  }
+  clock_t started = clock();
+  printf("%sunicode%s: Unicode 18.0.0 tables, %s\n\n", c_name, c_off,
+         "grapheme clusters, display width, and the rendition carried across a wrap");
+
   FILE *f = fopen("test/unicode/GraphemeBreakTest.txt", "r");
   if (!f) {
     printf("FAIL: cannot open test/unicode/GraphemeBreakTest.txt\n");
     return 1;
   }
+  section("clusters");
   char line[1024];
   int lineno = 0;
   while (fgets(line, sizeof line, f)) {
@@ -116,6 +173,7 @@ int main(void) {
   }
   fclose(f);
 
+  section("width");
   check_width("ascii", "hello", 5);
   check_width("cjk", "こんにちは", 10);
   check_width("combining", "e\xcc\x81", 1);                    // e + combining acute
@@ -131,12 +189,16 @@ int main(void) {
   check_width("escaped text", "\033[1;31mred\033[0m", 3);
   check_width("osc", "\033]0;title\007x", 1);
 
+  section("ambiguous");
   wu_set_ambiguous_wide(0);
-  check_width("ambiguous narrow", "\xc2\xa7", 1);              // section sign
+  check_width("narrow by default", "\xc2\xa7", 1);              // section sign
+  check_width("narrow: degree", "\xc2\xb0", 1);
   wu_set_ambiguous_wide(1);
-  check_width("ambiguous wide", "\xc2\xa7", 2);
+  check_width("wide when asked", "\xc2\xa7", 2);
+  check_width("wide: degree", "\xc2\xb0", 2);
   wu_set_ambiguous_wide(0);
 
+  section("rendition");
   check_sgr("plain", "no escapes", "");
   check_sgr("fg", "\033[31mred", "\033[31m");
   check_sgr("fg then reset", "\033[31mred\033[0m", "");
@@ -146,7 +208,13 @@ int main(void) {
   check_sgr("bold kept", "\033[1;31mx", "\033[1;31m");
   check_sgr("bold cleared", "\033[1;31mx\033[22m", "\033[31m");
   check_sgr("default fg", "\033[31mx\033[39m", "");
+  section_end();
 
-  printf("%d checks, %d failed\n", checks, failures);
+  if (faillog_len) printf("\n%s", faillog);
+  double seconds = (double)(clock() - started) / CLOCKS_PER_SEC;
+  if (failures == 0) printf("\n%sunicode: %d ok%s in %.1fs\n\n", c_ok, checks, c_off, seconds);
+  else
+    printf("\n%sunicode: %d failed%s, %d ok, in %.1fs\n\n",
+           c_bad, failures, c_off, checks - failures, seconds);
   return failures ? 1 : 0;
 }

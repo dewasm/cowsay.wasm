@@ -45,11 +45,17 @@ docs/clawd.svg: cowsay-native tools/ansi-to-svg.pl cows/clawd.cow
 	./cowsay-native -f clawd "Hello from cowsay.wasm" \
 	  | perl tools/ansi-to-svg.pl '$$ cowsay -f clawd "Hello from cowsay.wasm"' > $@
 
-# unicode_tables.h is committed so a build needs no network; this rebuilds it from the UCD.
-tables:
-	perl tools/gen-unicode-tables.pl $(UNICODE_VERSION) > unicode_tables.h
-	curl -fsS --max-time 60 -o test/unicode/GraphemeBreakTest.txt \
+# Both Unicode files are committed, so a build and a test run need no network.
+# Each has a rule for when it is missing; `make tables` refetches both at the pinned version.
+unicode_tables.h:
+	perl tools/gen-unicode-tables.pl $(UNICODE_VERSION) > $@
+
+test/unicode/GraphemeBreakTest.txt:
+	curl -fsS --max-time 60 -o $@ \
 	  "https://www.unicode.org/Public/$(UNICODE_VERSION)/ucd/auxiliary/GraphemeBreakTest.txt"
+
+tables:
+	$(MAKE) -B unicode_tables.h test/unicode/GraphemeBreakTest.txt
 
 lint:
 	shellcheck test/run.sh tools/embed-cows.sh
