@@ -30,6 +30,7 @@ $ make check         # the differential test suite in both modes
 $ make check-native  # only the host binary, against the vendored reference
 $ make check-wasm    # only cowsay.wasm, under wasmtime
 $ make lint          # shellcheck the scripts, and compile-check the Perl generator
+$ make update-ucd    # the only networked step: refresh ucd/ at UNICODE_VERSION
 ```
 
 ## Behavior

@@ -24,7 +24,7 @@ The width cases hand in what they need one at a time.
 | `width/` | snapshots of non-ASCII width, which the byte-based reference cannot define |
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
-| `unicode/` | `GraphemeBreakTest.txt` as the UCD publishes it, the data that test reads |
+| `../ucd/` | the UCD files as published; the tables and the break test are read from there |
 
 The fuzz generator stays inside the specification.
 It therefore emits neither a width below 2 nor a first message word of `0`;
@@ -75,6 +75,9 @@ The following behaviors of the reference are bugs with no value to preserve and 
 The reference counts bytes, so a combining mark widens the balloon and a CJK character narrows it,
 and an overlong word breaks in the middle of a character.
 This implementation counts the columns a terminal uses, per Unicode 18.0.0:
+
+The property tables come from the UCD files vendored under `ucd/`, so a build stays offline.
+`make update-ucd` moves those to another Unicode version, and the tables follow.
 
 - Text is measured in **extended grapheme clusters** (UAX #29), so a line never breaks inside one.
 - A cluster takes the width of its base character: two columns for East Asian Wide and Fullwidth,

@@ -158,9 +158,9 @@ int main(void) {
   printf("%sunicode%s: Unicode 18.0.0 tables, %s\n\n", c_name, c_off,
          "grapheme clusters, display width, and the rendition carried across a wrap");
 
-  FILE *f = fopen("test/unicode/GraphemeBreakTest.txt", "r");
+  FILE *f = fopen("ucd/GraphemeBreakTest.txt", "r");
   if (!f) {
-    printf("FAIL: cannot open test/unicode/GraphemeBreakTest.txt\n");
+    printf("FAIL: cannot open ucd/GraphemeBreakTest.txt\n");
     return 1;
   }
   section("clusters");

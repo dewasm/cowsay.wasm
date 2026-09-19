@@ -7,10 +7,14 @@ WASM_CFLAGS = $(CFLAGS) -Oz -flto -Wl,--strip-all
 COWS = $(sort $(wildcard cows/*.cow))
 SRC = cowsay.c width.c
 
-# The Unicode version the checked-in tables were generated from.
+# The version tools/fetch-ucd.sh pulls into ucd/; the tables follow what is vendored there.
 UNICODE_VERSION = 18.0.0
+UCD = ucd
+UCD_FILES = $(UCD)/EastAsianWidth.txt $(UCD)/DerivedCoreProperties.txt \
+            $(UCD)/DerivedGeneralCategory.txt $(UCD)/emoji-data.txt \
+            $(UCD)/GraphemeBreakProperty.txt
 
-.PHONY: all check check-width check-native check-wasm lint tables clean
+.PHONY: all check check-width check-native check-wasm lint update-ucd clean
 
 all: cowsay.wasm
 
@@ -25,7 +29,7 @@ cowsay.wasm: $(SRC) cows_embedded.h unicode_tables.h width.h
 cowsay-native: $(SRC) cows_embedded.h unicode_tables.h width.h
 	$(CC) $(CFLAGS) -O2 -o $@ $(SRC)
 
-width-test: test/width-test.c width.c unicode_tables.h width.h
+width-test: test/width-test.c width.c unicode_tables.h width.h $(UCD)/GraphemeBreakTest.txt
 	$(CC) $(CFLAGS) -O1 -I. -o $@ test/width-test.c width.c
 
 check: check-width check-native check-wasm
@@ -45,23 +49,20 @@ docs/clawd.svg: cowsay-native tools/ansi-to-svg.pl cows/clawd.cow
 	./cowsay-native -f clawd "Hello from cowsay.wasm" \
 	  | perl tools/ansi-to-svg.pl '$$ cowsay -f clawd "Hello from cowsay.wasm"' > $@
 
-# Both Unicode files are committed, so a build and a test run need no network.
-# Each has a rule for when it is missing; `make tables` refetches both at the pinned version.
-unicode_tables.h:
-	perl tools/gen-unicode-tables.pl $(UNICODE_VERSION) > $@
+# The tables are built from the vendored UCD, like cows_embedded.h is built from cows/.
+unicode_tables.h: tools/gen-unicode-tables.pl $(UCD_FILES)
+	perl tools/gen-unicode-tables.pl $(UCD) > $@
 
-test/unicode/GraphemeBreakTest.txt:
-	curl -fsS --max-time 60 -o $@ \
-	  "https://www.unicode.org/Public/$(UNICODE_VERSION)/ucd/auxiliary/GraphemeBreakTest.txt"
-
-tables:
-	$(MAKE) -B unicode_tables.h test/unicode/GraphemeBreakTest.txt
+# The only networked step: move the vendored UCD to UNICODE_VERSION, then commit the diff.
+update-ucd:
+	sh tools/fetch-ucd.sh $(UNICODE_VERSION) $(UCD)
 
 lint:
 	shellcheck test/run.sh tools/embed-cows.sh
 	perl -c test/gen-fuzz.pl
 	perl -c tools/ansi-to-svg.pl
 	perl -c tools/gen-unicode-tables.pl
+	shellcheck tools/fetch-ucd.sh
 
 clean:
-	rm -f cowsay.wasm cowsay-native cowthink-native width-test cows_embedded.h
+	rm -f cowsay.wasm cowsay-native cowthink-native width-test cows_embedded.h unicode_tables.h
