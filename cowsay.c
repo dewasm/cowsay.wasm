@@ -867,8 +867,8 @@ static void emit_balloon_line(Buf *b, const char *bl, const char *s, size_t padw
   wu_sgr_render(&balloon_sgr, open, sizeof open);
   buf_append(b, bl, strlen(bl));
   buf_push(b, ' ');
-  // Reopening at the start and closing at the end keeps a colour running down the balloon
-  // while the frame and the padding stay in the terminal's own colours.
+  // Reopening at the start and closing at the end keeps the colour inside the balloon text.
+  // The frame and the padding then stay in the terminal's own colours.
   buf_append(b, open, strlen(open));
   buf_append(b, s, strlen(s));
   wu_sgr_scan(&balloon_sgr, s, strlen(s));

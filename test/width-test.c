@@ -1,6 +1,6 @@
-/* Checks width.c against the Unicode Character Database's own grapheme break test,
- * and against the width and rendition rules cowsay relies on.
- * Run by `make check`; the data file is vendored under test/unicode/. */
+/* Checks width.c against the Unicode Character Database's own grapheme break test.
+ * It covers the width and rendition rules cowsay relies on as well.
+ * Run by `make check`; the data it reads is vendored under ucd/. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,8 +10,7 @@
 
 #include "../width.h"
 
-/* The progress display mirrors test/run.sh: a line of dots per section,
- * with the failures held to the end. */
+/* The progress display mirrors test/run.sh: dots per section, failures held to the end. */
 static const char *c_ok = "", *c_bad = "", *c_name = "", *c_dim = "", *c_off = "";
 static const int dots_per_line = 64;
 static const int label_width = 10;

@@ -1,9 +1,8 @@
 /* Display width of UTF-8 text on a terminal.
  *
- * Widths are per grapheme cluster rather than per codepoint: a cluster takes the width of its base
- * character, which the emoji rules can override.
- * That is where terminals converged, and it answers two questions with one rule, since the same
- * boundaries decide where a line may break.
+ * A width is per grapheme cluster, not per codepoint.
+ * The cluster takes its base character's width, which the emoji rules can override.
+ * Terminals converged there, and the same boundaries decide where a line may break.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */

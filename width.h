@@ -1,5 +1,5 @@
-/* Display width of UTF-8 text on a terminal: grapheme clusters, East Asian width,
- * and the SGR escapes that carry a colour across a line break.
+/* Display width of UTF-8 text on a terminal.
+ * Grapheme clusters, East Asian width, and the SGR escapes that survive a line break.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -13,8 +13,7 @@
 void wu_set_ambiguous_wide(int wide);
 
 /* Decode the UTF-8 sequence at `i`, returning its byte length and writing the codepoint.
- * A byte that starts no valid sequence decodes as itself over one byte,
- * so arbitrary input still moves forward. */
+ * An invalid lead byte decodes as itself over one byte, so arbitrary input still moves on. */
 size_t wu_decode(const char *s, size_t n, size_t i, unsigned *cp);
 
 /* The end of the extended grapheme cluster that starts at `i` (UAX #29). */

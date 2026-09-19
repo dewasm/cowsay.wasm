@@ -1,6 +1,7 @@
 #!/bin/sh
 
 # Refresh the vendored Unicode Character Database files.
+#
 # Usage: fetch-ucd.sh <version> <directory>
 #
 # This is the only step that needs the network.
