@@ -85,6 +85,7 @@ The property tables come from the UCD files vendored under `ucd/`, so a build st
 - The emoji rules override that: a cluster carrying U+FE0F takes two columns and U+FE0E one,
   while a regional indicator pair, or a pictograph with emoji presentation, takes two.
 - `-e` and `-T` truncate to two clusters, so a mark stays with the character it belongs to.
+- A tab under `-n` runs to the next multiple of eight columns rather than of eight characters.
 - A byte that forms no valid UTF-8 sequence counts as one column and passes through unchanged,
   so arbitrary byte input still works.
 - `chop` and `substr` in a cowfile still take one codepoint, matching what Perl does to `$eyes`.

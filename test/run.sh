@@ -15,8 +15,8 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
-# Column widths depend on the environment, and a wasm run sees none of it, so neither does a native run.
-# The width cases below hand in what they need one at a time.
+# Column widths depend on the environment, and a wasm run sees none of it.
+# A native run is given none either, and the width cases hand in what they need one at a time.
 unset LANG LC_ALL LC_CTYPE COWSAY_AMBIGUOUS_WIDTH
 ROOT=$PWD
 COWS=$ROOT/cows
@@ -130,8 +130,8 @@ run_ours() { # <think> <path|embedded> <stdin-file> [args...]
     local mod=$TMP/cowsay
     [ "$think" = 1 ] && mod=$TMP/cowthink.wasm
     if [ "$cpmode" = path ]; then
-      wasmtime run --dir "$COWS::$COWS" --env COWPATH="$COWS" ${wasm_env+"${wasm_env[@]}"} "$mod" "$@" \
-        <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
+      wasmtime run --dir "$COWS::$COWS" --env COWPATH="$COWS" \
+        ${wasm_env+"${wasm_env[@]}"} "$mod" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     else
       wasmtime run ${wasm_env+"${wasm_env[@]}"} "$mod" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     fi
@@ -139,9 +139,11 @@ run_ours() { # <think> <path|embedded> <stdin-file> [args...]
     local bin=$TMP/cowsay
     [ "$think" = 1 ] && bin=$TMP/cowthink-native
     if [ "$cpmode" = path ]; then
-      env COWPATH="$COWS" ${native_env+"${native_env[@]}"} "$bin" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
+      env COWPATH="$COWS" ${native_env+"${native_env[@]}"} "$bin" "$@" \
+        <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     else
-      env -u COWPATH ${native_env+"${native_env[@]}"} "$bin" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
+      env -u COWPATH ${native_env+"${native_env[@]}"} "$bin" "$@" \
+        <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     fi
   fi
   echo $? >"$TMP/got.code"
@@ -338,7 +340,8 @@ for dir in "$FUZZ"/*/; do
   report "fuzz-$(basename "$dir")" embedded ${args+"${args[@]}"}
 done
 
-# The reference measures bytes, so it cannot describe any of this; these cases check our own specification.
+# The reference measures bytes, so it cannot describe any of this;
+# these cases check our own specification.
 section width
 width_case() { # <name> <stdin-string> [args...]
   local name=$1 stdin=$2
@@ -384,7 +387,10 @@ width_case combining '' -W 12 'éééééééééééééééé'
 width_case cjk-wrap '' -W 12 '日本語のテキストを折り返す'
 width_case emoji '' '👨‍👩‍👧 family, 🇯🇵 flag, 1️⃣ keycap'
 width_case emoji-wrap '' -W 10 '🐄🐄🐄🐄🐄🐄🐄🐄'
-# East Asian Ambiguous is one column by default, two under a CJK locale, and the override settles it.
+# A tab under -n runs to the next multiple of eight columns, not of eight characters.
+width_case tabs $'日本\tx\nab\tx\n' -n
+# East Asian Ambiguous is one column by default, two under a CJK locale;
+# the override settles it either way.
 width_case ambiguous-default '' '§§§ ±±± °°°'
 width_env LANG=ja_JP.UTF-8 -- ambiguous-locale '' '§§§ ±±± °°°'
 width_env LANG=ja_JP.UTF-8 COWSAY_AMBIGUOUS_WIDTH=1 -- ambiguous-override '' '§§§ ±±± °°°'

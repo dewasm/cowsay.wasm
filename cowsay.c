@@ -76,34 +76,20 @@ static void list_push(List *l, char *s) {
  * Overlong encodings pass: the goal is never to split a sequence, not to validate it.
  */
 
-static size_t u8_len_at(const char *s, size_t n, size_t i) {
-  unsigned char c = (unsigned char)s[i];
-  size_t need;
-  if (c < 0x80) need = 1;
-  else if ((c & 0xE0) == 0xC0) need = 2;
-  else if ((c & 0xF0) == 0xE0) need = 3;
-  else if ((c & 0xF8) == 0xF0) need = 4;
-  else return 1;
-  if (i + need > n) return 1;
-  for (size_t k = 1; k < need; k++) {
-    if (((unsigned char)s[i + k] & 0xC0) != 0x80) return 1;
-  }
-  return need;
-}
-
-/* The codepoint at `index`, as a fresh string, empty past the end, like Perl substr($s, $i, 1). */
+/* The codepoint at `index`, as a fresh string, empty past the end: Perl substr($s, $i, 1). */
 static char *u8_unit_at(const char *s, size_t index) {
   size_t n = strlen(s), i = 0;
+  unsigned cp;
   while (index > 0 && i < n) {
-    i += u8_len_at(s, n, i);
+    i += wu_decode(s, n, i, &cp);
     index--;
   }
   if (i >= n) return xstrndup("", 0);
-  return xstrndup(s + i, u8_len_at(s, n, i));
+  return xstrndup(s + i, wu_decode(s, n, i, &cp));
 }
 
 /* First `units` grapheme clusters of s: Perl substr($s, 0, 2) lifted to clusters. */
-static char *u8_prefix(const char *s, size_t units) {
+static char *cluster_prefix(const char *s, size_t units) {
   size_t n = strlen(s), i = 0;
   while (units > 0 && i < n) {
     i = wu_cluster_end(s, n, i);
@@ -237,25 +223,30 @@ static char *fill_lines(char **lines, size_t nlines, long *columns) {
   return out.p;
 }
 
-/* Text::Tabs expand() with tabstop 8: pad each tab out to the next multiple of 8.
- * The original tracks only the previous segment's length.
- * That works because the padding realigns every boundary to a tabstop;
- * the segment length modulo 8 then equals the column modulo 8.
+/* Text::Tabs expand() with tabstop 8: a tab runs to the next multiple of eight columns.
+ * Columns rather than characters, so a tab after a wide character still lands on its stop.
  */
 static char *expand_line(const char *s) {
   Buf out = {0};
-  size_t seg_units = 0;
-  for (size_t i = 0; s[i];) {
+  size_t n = strlen(s), column = 0;
+  for (size_t i = 0; i < n;) {
     if (s[i] == '\t') {
-      buf_repeat(&out, ' ', 8 - seg_units % 8);
-      seg_units = 0;
+      size_t pad = 8 - column % 8;
+      buf_repeat(&out, ' ', pad);
+      column += pad;
       i++;
-    } else {
-      size_t l = u8_len_at(s, strlen(s), i);
-      buf_append(&out, s + i, l);
-      seg_units++;
-      i += l;
+      continue;
     }
+    size_t esc = wu_escape_len(s, n, i);
+    if (esc) {
+      buf_append(&out, s + i, esc);
+      i += esc;
+      continue;
+    }
+    size_t end = wu_cluster_end(s, n, i);
+    buf_append(&out, s + i, end - i);
+    column += (size_t)wu_cluster_width(s, n, i, end);
+    i = end;
   }
   if (!out.p) buf_append(&out, "", 0);
   return out.p;
@@ -365,14 +356,14 @@ static void cow_error(int lineno, const char *msg) {
   exit(1);
 }
 
-/* Remove and return the last codepoint of *s (Perl chop, lifted to units). */
+/* Remove and return the last codepoint of *s: Perl chop, lifted from bytes to codepoints. */
 static char *chop_unit(char *s) {
-  size_t n = strlen(s);
+  size_t n = strlen(s), i = 0, last = 0;
+  unsigned cp;
   if (n == 0) return xstrndup("", 0);
-  size_t i = 0, last = 0;
   while (i < n) {
     last = i;
-    i += u8_len_at(s, n, i);
+    i += wu_decode(s, n, i, &cp);
   }
   char *out = xstrndup(s + last, n - last);
   s[last] = '\0';
@@ -999,8 +990,8 @@ int main(int argc, char **argv) {
   if (o.h) display_usage();
   if (o.l) list_cowfiles();
 
-  eyes = u8_prefix(o.e, 2);
-  tongue = u8_prefix(o.T, 2);
+  eyes = cluster_prefix(o.e, 2);
+  tongue = cluster_prefix(o.T, 2);
   long columns = numify(o.W);
 
   // Deliberate fix: `unless ($ARGV[0])` makes a first argument of "" or "0" falsy in the reference;
