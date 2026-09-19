@@ -15,7 +15,9 @@
 #include "cows_embedded.h"
 #include "width.h"
 
-#define VERSION "3.03"
+/* The cowsay this reimplements, and the version of this reimplementation; -h names both. */
+#define COWSAY_VERSION "3.03"
+#define COWSAY_WASM_VERSION "0.2.0"
 
 /* ---------- growable byte buffer and string list ---------- */
 
@@ -334,7 +336,8 @@ static void display_usage(void) {
   // Deliberate fix: the reference exits 255 (Perl die), which WASI preview 1 cannot represent.
   // This exits with EX_USAGE, and drops the stray trailing space from its usage text.
   fprintf(stderr,
-      "cow{say,think} version " VERSION ", (c) 1999 Tony Monroe\n"
+      "cow{say,think} version " COWSAY_VERSION " (cowsay.wasm " COWSAY_WASM_VERSION "),"
+      " (c) 1999 Tony Monroe\n"
       "Usage: %s [-bdgpstwy] [-h] [-e eyes] [-f cowfile]\n"
       "          [-l] [-n] [-T tongue] [-W wrapcolumn] [message]\n",
       progname);

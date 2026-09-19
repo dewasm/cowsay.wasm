@@ -13,6 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Check the tag against the version the binary reports
+        run: |
+          version=$(sed -n 's/^#define COWSAY_WASM_VERSION "\(.*\)"/\1/p' cowsay.c)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match COWSAY_WASM_VERSION $version" >&2
+            exit 1
+          fi
       - name: Install wasi-sdk
         run: |
           curl -fsSL --retry 5 -o /tmp/wasi-sdk.tar.gz \
