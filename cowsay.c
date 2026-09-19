@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 
 #include "cows_embedded.h"
+#include "width.h"
 
 #define VERSION "3.03"
 
@@ -75,46 +76,23 @@ static void list_push(List *l, char *s) {
  * Overlong encodings pass: the goal is never to split a sequence, not to validate it.
  */
 
-static size_t u8_len_at(const char *s, size_t n, size_t i) {
-  unsigned char c = (unsigned char)s[i];
-  size_t need;
-  if (c < 0x80) need = 1;
-  else if ((c & 0xE0) == 0xC0) need = 2;
-  else if ((c & 0xF0) == 0xE0) need = 3;
-  else if ((c & 0xF8) == 0xF0) need = 4;
-  else return 1;
-  if (i + need > n) return 1;
-  for (size_t k = 1; k < need; k++) {
-    if (((unsigned char)s[i + k] & 0xC0) != 0x80) return 1;
-  }
-  return need;
-}
-
-static size_t u8_count(const char *s, size_t n) {
-  size_t i = 0, units = 0;
-  while (i < n) {
-    i += u8_len_at(s, n, i);
-    units++;
-  }
-  return units;
-}
-
-/* The codepoint at `index`, as a fresh string, empty past the end, like Perl substr($s, $i, 1). */
+/* The codepoint at `index`, as a fresh string, empty past the end: Perl substr($s, $i, 1). */
 static char *u8_unit_at(const char *s, size_t index) {
   size_t n = strlen(s), i = 0;
+  unsigned cp;
   while (index > 0 && i < n) {
-    i += u8_len_at(s, n, i);
+    i += wu_decode(s, n, i, &cp);
     index--;
   }
   if (i >= n) return xstrndup("", 0);
-  return xstrndup(s + i, u8_len_at(s, n, i));
+  return xstrndup(s + i, wu_decode(s, n, i, &cp));
 }
 
-/* First `units` codepoints of s, as a fresh string: Perl substr($s, 0, 2) lifted to codepoints. */
-static char *u8_prefix(const char *s, size_t units) {
+/* First `units` grapheme clusters of s: Perl substr($s, 0, 2) lifted to clusters. */
+static char *cluster_prefix(const char *s, size_t units) {
   size_t n = strlen(s), i = 0;
   while (units > 0 && i < n) {
-    i += u8_len_at(s, n, i);
+    i = wu_cluster_end(s, n, i);
     units--;
   }
   return xstrndup(s, i);
@@ -148,14 +126,24 @@ static char *wrap_text(const char *t, size_t n, long *columns) {
     size_t p = pos;
     while (p < n && is_space(t[p])) p++;
     if (p == n) break;
-    // Greedy match: the longest prefix of at most ll units ending at a break or end of input.
+    // Greedy match: the longest prefix of at most ll columns ending at a break or end of input.
+    // A unit here is one grapheme cluster, so a break never lands inside one;
+    // escape sequences ride along at no cost.
     size_t q = pos;
     long units = 0;
     size_t best = (size_t)-1;
-    if (is_space(t[pos])) best = pos; // zero-unit candidate
+    if (is_space(t[pos])) best = pos; // zero-column candidate
     while (units < ll && q < n && t[q] != '\n') {
-      q += u8_len_at(t, n, q);
-      units++;
+      size_t esc = wu_escape_len(t, n, q);
+      if (esc) {
+        q += esc;
+        continue;
+      }
+      size_t end = wu_cluster_end(t, n, q);
+      int w = wu_cluster_width(t, n, q, end);
+      if (units + w > ll) break;
+      q = end;
+      units += w ? w : 1; // a zero-width cluster still has to advance the count
       if (q == n || is_space(t[q])) best = q;
     }
     if (best != (size_t)-1) {
@@ -168,16 +156,14 @@ static char *wrap_text(const char *t, size_t n, long *columns) {
         rem = NULL;
         pos = n;
       }
-    } else if (ll >= 1 && units == ll) {
-      // $huge = 'wrap': cut the overlong word at exactly ll units.
+    } else {
+      // $huge = 'wrap': cut the overlong word where the columns run out.
+      // A cluster wider than the line still goes out whole: not splitting one is the point.
+      if (q == pos) q = wu_cluster_end(t, n, pos);
       if (!first) buf_push(&r, '\n');
       buf_append(&r, t + pos, q - pos);
       rem = NULL; // separator; never survives to the end of the loop
       pos = q;
-    } else {
-      // With ll >= 1 the walk ends at a break candidate or at ll units, so this is unreachable.
-      fputs("cowsay: internal wrap error\n", stderr);
-      exit(70);
     }
     first = 0;
   }
@@ -237,25 +223,30 @@ static char *fill_lines(char **lines, size_t nlines, long *columns) {
   return out.p;
 }
 
-/* Text::Tabs expand() with tabstop 8: pad each tab out to the next multiple of 8.
- * The original tracks only the previous segment's length.
- * That works because the padding realigns every boundary to a tabstop;
- * the segment length modulo 8 then equals the column modulo 8.
+/* Text::Tabs expand() with tabstop 8: a tab runs to the next multiple of eight columns.
+ * Columns rather than characters, so a tab after a wide character still lands on its stop.
  */
 static char *expand_line(const char *s) {
   Buf out = {0};
-  size_t seg_units = 0;
-  for (size_t i = 0; s[i];) {
+  size_t n = strlen(s), column = 0;
+  for (size_t i = 0; i < n;) {
     if (s[i] == '\t') {
-      buf_repeat(&out, ' ', 8 - seg_units % 8);
-      seg_units = 0;
+      size_t pad = 8 - column % 8;
+      buf_repeat(&out, ' ', pad);
+      column += pad;
       i++;
-    } else {
-      size_t l = u8_len_at(s, strlen(s), i);
-      buf_append(&out, s + i, l);
-      seg_units++;
-      i += l;
+      continue;
     }
+    size_t esc = wu_escape_len(s, n, i);
+    if (esc) {
+      buf_append(&out, s + i, esc);
+      i += esc;
+      continue;
+    }
+    size_t end = wu_cluster_end(s, n, i);
+    buf_append(&out, s + i, end - i);
+    column += (size_t)wu_cluster_width(s, n, i, end);
+    i = end;
   }
   if (!out.p) buf_append(&out, "", 0);
   return out.p;
@@ -365,14 +356,14 @@ static void cow_error(int lineno, const char *msg) {
   exit(1);
 }
 
-/* Remove and return the last codepoint of *s (Perl chop, lifted to units). */
+/* Remove and return the last codepoint of *s: Perl chop, lifted from bytes to codepoints. */
 static char *chop_unit(char *s) {
-  size_t n = strlen(s);
+  size_t n = strlen(s), i = 0, last = 0;
+  unsigned cp;
   if (n == 0) return xstrndup("", 0);
-  size_t i = 0, last = 0;
   while (i < n) {
     last = i;
-    i += u8_len_at(s, n, i);
+    i += wu_decode(s, n, i, &cp);
   }
   char *out = xstrndup(s + last, n - last);
   s[last] = '\0';
@@ -859,11 +850,21 @@ static void list_cowfiles(void) {
 
 /* ---------- balloon ---------- */
 
+/* The rendition a wrapped line inherits from the lines above it. */
+static WuSgr balloon_sgr;
+
 static void emit_balloon_line(Buf *b, const char *bl, const char *s, size_t padw, const char *br) {
+  char open[96];
+  wu_sgr_render(&balloon_sgr, open, sizeof open);
   buf_append(b, bl, strlen(bl));
   buf_push(b, ' ');
+  // Reopening at the start and closing at the end keeps the colour inside the balloon text.
+  // The frame and the padding then stay in the terminal's own colours.
+  buf_append(b, open, strlen(open));
   buf_append(b, s, strlen(s));
-  size_t units = u8_count(s, strlen(s));
+  wu_sgr_scan(&balloon_sgr, s, strlen(s));
+  if (wu_sgr_active(&balloon_sgr)) buf_append(b, "\033[0m", 4);
+  size_t units = wu_display_width(s, strlen(s));
   if (units < padw) buf_repeat(b, ' ', padw - units);
   buf_push(b, ' ');
   buf_append(b, br, strlen(br));
@@ -871,9 +872,10 @@ static void emit_balloon_line(Buf *b, const char *bl, const char *s, size_t padw
 }
 
 static char *construct_balloon(char **lines, size_t n, int think) {
+  wu_sgr_clear(&balloon_sgr);
   long max = -1;
   for (size_t i = 0; i < n; i++) {
-    long l = (long)u8_count(lines[i], strlen(lines[i]));
+    long l = (long)wu_display_width(lines[i], strlen(lines[i]));
     if (l > max) max = l;
   }
   // max stays -1 for an empty message;
@@ -951,7 +953,28 @@ static long numify(const char *s) {
   return strtol(s, NULL, 10);
 }
 
+/* East Asian Ambiguous characters take one column, per Unicode's default.
+ * A CJK locale makes them two, as terminals and older libc implementations do, and
+ * COWSAY_AMBIGUOUS_WIDTH=1 or =2 settles it outright.
+ * A wasm runtime passes no environment unless asked, so the default holds until one arrives. */
+static int ambiguous_is_wide(void) {
+  const char *override = getenv("COWSAY_AMBIGUOUS_WIDTH");
+  if (override && *override) return *override == '2';
+  const char *locale = getenv("LC_ALL");
+  if (!locale || !*locale) locale = getenv("LC_CTYPE");
+  if (!locale || !*locale) locale = getenv("LANG");
+  if (!locale) return 0;
+  static const char *cjk[] = {"ja", "ko", "zh"};
+  for (size_t i = 0; i < sizeof cjk / sizeof cjk[0]; i++) {
+    size_t len = strlen(cjk[i]);
+    if (strncmp(locale, cjk[i], len) != 0) continue;
+    if (locale[len] == '\0' || locale[len] == '_' || locale[len] == '.') return 1;
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
+  wu_set_ambiguous_wide(ambiguous_is_wide());
   if (argc > 0 && argv[0] && argv[0][0]) argv0 = argv[0];
   progname = basename_of(argv0);
   int think = contains_think(argv0);
@@ -967,8 +990,8 @@ int main(int argc, char **argv) {
   if (o.h) display_usage();
   if (o.l) list_cowfiles();
 
-  eyes = u8_prefix(o.e, 2);
-  tongue = u8_prefix(o.T, 2);
+  eyes = cluster_prefix(o.e, 2);
+  tongue = cluster_prefix(o.T, 2);
   long columns = numify(o.W);
 
   // Deliberate fix: `unless ($ARGV[0])` makes a first argument of "" or "0" falsy in the reference;

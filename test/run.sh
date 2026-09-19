@@ -14,6 +14,10 @@
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
+
+# Column widths depend on the environment, and a wasm run sees none of it.
+# A native run is given none either, and the width cases hand in what they need one at a time.
+unset LANG LC_ALL LC_CTYPE COWSAY_AMBIGUOUS_WIDTH
 ROOT=$PWD
 COWS=$ROOT/cows
 REF=$ROOT/test/reference/cowsay
@@ -111,25 +115,35 @@ run_ref() { # <think> <stdin-file> [args...]
   echo $? >"$TMP/ref.code"
 }
 
+# WIDTH_ENV names the variables a width case wants handed to the binary, as NAME=VALUE words.
+WIDTH_ENV=
+
 run_ours() { # <think> <path|embedded> <stdin-file> [args...]
   local think=$1 cpmode=$2 in=$3
   shift 3
+  local wasm_env=() native_env=() kv
+  for kv in $WIDTH_ENV; do
+    wasm_env+=(--env "$kv")
+    native_env+=("$kv")
+  done
   if [ "$MODE" = wasm ]; then
     local mod=$TMP/cowsay
     [ "$think" = 1 ] && mod=$TMP/cowthink.wasm
     if [ "$cpmode" = path ]; then
-      wasmtime run --dir "$COWS::$COWS" --env COWPATH="$COWS" "$mod" "$@" \
-        <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
+      wasmtime run --dir "$COWS::$COWS" --env COWPATH="$COWS" \
+        ${wasm_env+"${wasm_env[@]}"} "$mod" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     else
-      wasmtime run "$mod" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
+      wasmtime run ${wasm_env+"${wasm_env[@]}"} "$mod" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     fi
   else
     local bin=$TMP/cowsay
     [ "$think" = 1 ] && bin=$TMP/cowthink-native
     if [ "$cpmode" = path ]; then
-      COWPATH=$COWS "$bin" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
+      env COWPATH="$COWS" ${native_env+"${native_env[@]}"} "$bin" "$@" \
+        <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     else
-      env -u COWPATH "$bin" "$@" <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
+      env -u COWPATH ${native_env+"${native_env[@]}"} "$bin" "$@" \
+        <"$in" >"$TMP/got.out" 2>"$TMP/got.err"
     fi
   fi
   echo $? >"$TMP/got.code"
@@ -230,6 +244,11 @@ fixed width-0 0 '' -W 0 tiny width
 fixed width-1 0 '' -W 1 tiny width
 fixed width-junk 0 '' -W abc tiny width
 fixed width-negative 0 '' -W -5 tiny width
+# Deliberate fix: an SGR sequence costs no columns, and a colour still open at a wrap is
+# reopened on the next line (the reference counts the escape bytes as text).
+fixed escape-width 0 '' $'\033[31mred\033[0m and plain'
+fixed escape-wrap 0 '' -W 24 $'\033[1;31mthis red sentence is long enough to wrap twice over\033[0m'
+fixed escape-only 0 '' $'\033[31m\033[0m'
 
 section stdin
 t stdin-multiline $'line one\nline two\nline three\n'
@@ -321,9 +340,10 @@ for dir in "$FUZZ"/*/; do
   report "fuzz-$(basename "$dir")" embedded ${args+"${args[@]}"}
 done
 
-# The reference is byte-based here, so these cases check our own specification instead.
-section utf8
-utf8() { # <name> <stdin-string> [args...]
+# The reference measures bytes, so it cannot describe any of this;
+# these cases check our own specification.
+section width
+width_case() { # <name> <stdin-string> [args...]
   local name=$1 stdin=$2
   shift 2
   printf '%s' "$stdin" >"$TMP/in"
@@ -333,23 +353,47 @@ utf8() { # <name> <stdin-string> [args...]
     exit(utf8::decode($s) ? 0 : 1);
   ' <"$TMP/got.out"; then
     tick failed
-    echo "FAIL: utf8-$name produced invalid UTF-8" >>"$FAILLOG"
-  elif ! cmp -s "$TMP/got.out" "test/utf8/$name.expected"; then
+    echo "FAIL: width-$name produced invalid UTF-8" >>"$FAILLOG"
+  elif ! cmp -s "$TMP/got.out" "test/width/$name.expected"; then
     tick failed
     {
-      echo "FAIL: utf8-$name differs from test/utf8/$name.expected"
-      diff -u "test/utf8/$name.expected" "$TMP/got.out" | head -20 | sed 's/^/  /'
+      echo "FAIL: width-$name differs from test/width/$name.expected"
+      diff -u "test/width/$name.expected" "$TMP/got.out" | head -20 | sed 's/^/  /'
     } >>"$FAILLOG"
   else
     tick ok
   fi
 }
 
-utf8 latin '' 'héllo wörld, ça va très bien aujourdʼhui'
-utf8 cjk '' 'こんにちは世界'
-utf8 wrap-boundary '' -W 10 'ééééééééééééééééééééééééé'
-utf8 eyes '' -e 'øø' moo
-utf8 mixed $'Ünïcödé line one\nsecond line ここ\n'
+width_env() { # <NAME=VALUE...> -- <name> <stdin-string> [args...]
+  local saved=$WIDTH_ENV
+  WIDTH_ENV=
+  while [ "$1" != -- ]; do
+    WIDTH_ENV="$WIDTH_ENV $1"
+    shift
+  done
+  shift
+  width_case "$@"
+  WIDTH_ENV=$saved
+}
+
+width_case latin '' 'héllo wörld, ça va très bien aujourdʼhui'
+width_case cjk '' 'こんにちは世界'
+width_case wrap-boundary '' -W 10 'ééééééééééééééééééééééééé'
+width_case eyes '' -e 'øø' moo
+width_case mixed $'Ünïcödé line one\nsecond line ここ\n'
+# Widths are per grapheme cluster, so a combining mark, a flag and a ZWJ sequence each stay whole.
+width_case combining '' -W 12 'éééééééééééééééé'
+width_case cjk-wrap '' -W 12 '日本語のテキストを折り返す'
+width_case emoji '' '👨‍👩‍👧 family, 🇯🇵 flag, 1️⃣ keycap'
+width_case emoji-wrap '' -W 10 '🐄🐄🐄🐄🐄🐄🐄🐄'
+# A tab under -n runs to the next multiple of eight columns, not of eight characters.
+width_case tabs $'日本\tx\nab\tx\n' -n
+# East Asian Ambiguous is one column by default, two under a CJK locale;
+# the override settles it either way.
+width_case ambiguous-default '' '§§§ ±±± °°°'
+width_env LANG=ja_JP.UTF-8 -- ambiguous-locale '' '§§§ ±±± °°°'
+width_env LANG=ja_JP.UTF-8 COWSAY_AMBIGUOUS_WIDTH=1 -- ambiguous-override '' '§§§ ±±± °°°'
 
 section_end
 if [ "$fail" -gt 0 ]; then

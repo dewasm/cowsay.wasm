@@ -1,4 +1,6 @@
 /cowsay.wasm
 /cowsay-native
 /cowthink-native
+/width-test
 /cows_embedded.h
+/unicode_tables.h
