@@ -59,7 +59,8 @@ The following behaviors of the reference are bugs with no value to preserve and 
   The reference instead runs `do $full` unchecked, prints the balloon with no cow, and exits 0.
 - A usage error exits with `EX_USAGE` (64) rather than the reference's 255;
   WASI preview 1 cannot represent a status that high.
-  The usage text also drops a stray trailing space, carried over from the reference's heredoc.
+  The usage text also drops a stray trailing space, carried over from the reference's heredoc,
+  and names this build beside the cowsay it implements: `version 3.03 (cowsay.wasm 0.2.0)`.
 - An ANSI escape sequence counts as no columns, and an open colour carries across a wrapped line.
   The reference counts those bytes as text, so the balloon widens by the length of the sequence;
   the rest of the message also loses its colour at the first break.
