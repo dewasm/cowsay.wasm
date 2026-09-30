@@ -43,12 +43,26 @@ submodule_cows() { # <submodule>
     [ "${entry%%/*}" = "$1" ] && echo "$ROOT/test/submodules/$entry"
   done
 }
+MODE=${COWSAY_TEST_MODE:-native}
+
+# A missing tool or binary stops the suite here, rather than failing every case after.
+missing() { # <message>
+  echo "$1" >&2
+  exit 1
+}
+command -v perl >/dev/null || missing "perl is not on PATH: the reference runs under it"
+if [ "$MODE" = wasm ]; then
+  command -v wasmtime >/dev/null || missing "wasmtime is not on PATH: the wasm mode runs under it"
+  [ -f cowsay.wasm ] || missing "cowsay.wasm is missing: run make cowsay.wasm"
+else
+  [ -x cowsay-native ] || missing "cowsay-native is missing: run make cowsay-native"
+fi
+
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 # The binary under test runs from a copy named "cowsay" (or "cowthink").
 # The reference takes its program name and think mode from $0, and ours from argv[0].
-MODE=${COWSAY_TEST_MODE:-native}
 cp "$REF" "$TMP/cowthink"
 if [ "$MODE" = wasm ]; then
   cp cowsay.wasm "$TMP/cowsay"
