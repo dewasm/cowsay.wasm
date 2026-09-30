@@ -1241,7 +1241,7 @@ int main(int argc, char **argv) {
   tongue = cluster_prefix(o.T, 2);
   long columns = numify(o.W);
 
-  // Intended fix: `unless ($ARGV[0])` makes a first argument of "" or "0" falsy in the reference;
+  // Intended fix: the reference tests `unless ($ARGV[0])`, where Perl takes "" and "0" as false;
   // it then waits on stdin, while here any remaining argument selects the argument message.
   List raw = {0};
   int use_args = rest < argc;

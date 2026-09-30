@@ -62,9 +62,10 @@ The following behaviors of the reference are bugs with no value to preserve and 
   The reference instead feeds `Text::Wrap` a negative regex quantifier;
   it then returns its argument count, so that the message becomes `3`.
 - Any remaining argument selects the argument message.
-  The reference instead tests `unless ($ARGV[0])`, so `cowsay 0` and `cowsay ""` wait on stdin.
+  The reference instead tests `unless ($ARGV[0])`, and Perl takes `"0"` and `""` as false,
+  so `cowsay 0` and `cowsay ""` wait on stdin.
 - A cowfile's `($eyes)` is false only for an empty `$eyes`.
-  The reference takes `"0"` as false too, so `cowsay -e 0 -f small` shows the default `..`.
+  Perl takes `"0"` as false too, so the reference shows the default `..` for `cowsay -e 0 -f small`.
 - `-f` with a missing path containing `/` reports `Could not find ... cowfile!` and exits 2.
   The reference instead runs `do $full` unchecked, prints the balloon with no cow, and exits 0.
 - A usage error exits with `EX_USAGE` (64) rather than the reference's 255;
@@ -75,12 +76,12 @@ The following behaviors of the reference are bugs with no value to preserve and 
   The reference counts those bytes as text, so the balloon widens by the length of the sequence;
   the rest of the message also loses its colour at the first break.
 - A cow with a character above U+00FF prints with no warning.
-  The reference also prints `Wide character in print` on stderr.
+  Perl also prints `Wide character in print` on stderr for it.
 
 ### Outside the specification
 
 - `--help` and `--version`, whose Getopt::Std output embeds the host Perl version.
-- Malformed cowfiles: the reference reports a Perl error; this implementation reports its own.
+- Malformed cowfiles: Perl reports its own error, and so does this implementation.
 - `-W` values that are not a decimal integer with optional sign; the leading integer prefix is used.
 
 ## Display width

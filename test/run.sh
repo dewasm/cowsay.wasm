@@ -373,7 +373,7 @@ t n-empty '' -n
 
 section arguments
 # Intended fix: any remaining argument selects the argument message.
-# The reference treats a first argument of "0" or "" as false and reads stdin.
+# The reference tests `unless ($ARGV[0])`, where Perl takes "0" and "" as false, and reads stdin.
 fixed arg-zero 0 $'not this\n' 0 is a message
 fixed arg-empty-first 0 $'not this\n' '' still a message
 t arg-space ' ' ' '
@@ -403,7 +403,8 @@ for cow in cows/*.cow; do
 done
 t cow-suffix '' -f default.cow moo
 t cow-small-empty-eyes '' -e '' -f small moo
-# Intended fix: `-e 0` keeps its eye (the reference takes "0" as false and fills in the default).
+# Intended fix: `-e 0` keeps its eye.
+# Perl takes "0" as false, so the reference fills in the default.
 fixed cow-small-zero-eyes 0 '' -e 0 -f small moo
 t cow-three-eyes-e '' -e ab -f three-eyes moo
 t cow-udder-e '' -e ab -f udder moo
@@ -625,7 +626,8 @@ submodule_case mstill3-cowsay-files bird-stork
 submodule_case mstill3-cowsay-files chopper
 # Outside the grammar.
 submodule_refused mstill3-cowsay-files griffin 9 'unknown variable in cowfile'
-submodule_refused mstill3-cowsay-files motivational-whale 19 'unsupported text after heredoc terminator'
+submodule_refused mstill3-cowsay-files motivational-whale 19 \
+  'unsupported text after heredoc terminator'
 submodule_refused mstill3-cowsay-files snail 12 'unescaped @ in cowfile'
 
 section usage
