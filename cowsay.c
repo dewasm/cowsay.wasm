@@ -7,7 +7,11 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
+// arc4random_uniform is outside ISO C, which -std=c99 would keep to.
+#define _DEFAULT_SOURCE
+
 #include <dirent.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -263,14 +267,14 @@ static const char *progname = "cowsay";
 #define VERSION_LINE "version " COWSAY_VERSION " (cowsay.wasm " COWSAY_WASM_VERSION ")"
 
 /* Intended fix: the version line also names this build, beside the cowsay it implements.
- * Neither -r nor -C is described, since this build has neither yet.
+ * -C is left out, since this build does not have it.
  */
 static void display_help(int status) {
   printf("%s " VERSION_LINE "\n"
          "\n"
          "Usage:\n"
          "\n"
-         "    %s [-bdgpstwy] [-f <cowfile>] [-e <eyes>] [-T <tongue>]\n"
+         "    %s [-bdgpstwy] [-f <cowfile>] [-r] [-e <eyes>] [-T <tongue>]\n"
          "        [-W <wrapcolumn>] [-n]\n"
          "        <message>\n"
          "\n"
@@ -289,6 +293,8 @@ static void display_help(int status) {
          "(without the '.cow' file extension), or the\n"
          "        path to a cowfile (with the '.cow' file extension). `%s -l` will list the\n"
          "        names of available cows.\n"
+         "\n"
+         "    -r selects a random cowfile from those present on the cowpath.\n"
          "\n"
          "    -e <eyes> defines a custom eye appearance. <eyes> should be a two-character string.\n"
          "        It is up to you whether they actually look like eyes.\n"
@@ -312,11 +318,11 @@ static void display_version(void) {
 
 /* ---------- option parsing: Getopt::Std getopts() port ---------- */
 
-static const char OPTSTRING[] = "bde:f:ghlLnNpstT:wW:y";
+static const char OPTSTRING[] = "bde:f:ghlLnNprstT:wW:y";
 
 typedef struct {
   const char *e, *f, *T, *W;
-  int b, d, g, p, s, t, w, y, h, l, n;
+  int b, d, g, p, s, t, w, y, h, l, n, r;
 } Opts;
 
 /* Consumes options from argv[1..]; returns the index of the first remaining argument.
@@ -369,6 +375,7 @@ static int getopts(int argc, char **argv, Opts *o) {
           case 't': o->t = 1; break;
           case 'w': o->w = 1; break;
           case 'y': o->y = 1; break;
+          case 'r': o->r = 1; break;
           default: break; // L, N: accepted and ignored, as upstream
         }
         cluster = *rest ? rest : NULL;
@@ -1126,6 +1133,16 @@ static char *cow_in_dir(const char *dir, const char *name) {
   return NULL;
 }
 
+static char *cow_from_cowpath(const char *name) {
+  List dirs = cowpath_dirs();
+  for (size_t i = 0; i < dirs.n; i++) {
+    char *cow = cow_in_dir(dirs.v[i], name);
+    if (cow) return cow;
+  }
+  fprintf(stderr, "%s: Could not find cowfile for '%s'!\n", progname, name);
+  exit(2); // Perl die picks up $! = ENOENT from the failed file tests
+}
+
 static char *get_cow(const char *f) {
   // A file of that name comes first, as in the reference.
   // Intended fix: the reference loads it with `do`, which searches @INC for a relative path
@@ -1134,13 +1151,7 @@ static char *get_cow(const char *f) {
     char *cow = load_cow_file(f);
     if (cow) return cow;
   }
-  List dirs = cowpath_dirs();
-  for (size_t i = 0; i < dirs.n; i++) {
-    char *cow = cow_in_dir(dirs.v[i], f);
-    if (cow) return cow;
-  }
-  fprintf(stderr, "%s: Could not find cowfile for '%s'!\n", progname, f);
-  exit(2); // Perl die picks up $! = ENOENT from the failed file tests
+  return cow_from_cowpath(f);
 }
 
 /* ---------- -l listing ---------- */
@@ -1204,35 +1215,52 @@ static void cowpath_listing(List *dirs, List **names) {
   }
 }
 
-/* A terminal gets the cowfiles under each directory; anything else gets their names alone. */
-static void list_cowfiles(void) {
+/* The directories of cowpath_listing, and room for their name lists. */
+static List **listing_room(void) {
   const char *cowpath = getenv("COWPATH");
   size_t max_dirs = 2;
   for (const char *p = cowpath ? cowpath : ""; *p; p++) max_dirs += *p == ':';
-  List dirs = {0};
-  List **names = xrealloc(NULL, max_dirs * sizeof *names);
+  return xrealloc(NULL, max_dirs * sizeof(List *));
+}
+
+/* The cowfile names of the whole cowpath, sorted, each once. */
+static List cow_names(void) {
+  List dirs = {0}, all = {0}, unique = {0};
+  List **names = listing_room();
   cowpath_listing(&dirs, names);
+  for (size_t i = 0; i < dirs.n; i++)
+    for (size_t k = 0; k < names[i]->n; k++) list_push(&all, names[i]->v[k]);
+  qsort(all.v, all.n, sizeof(char *), cmp_str);
+  for (size_t k = 0; k < all.n; k++)
+    if (!k || strcmp(all.v[k], all.v[k - 1]) != 0) list_push(&unique, all.v[k]);
+  return unique;
+}
+
+/* A terminal gets the cowfiles under each directory; anything else gets their names alone. */
+static void list_cowfiles(void) {
   if (isatty(STDOUT_FILENO)) {
+    List dirs = {0};
+    List **names = listing_room();
+    cowpath_listing(&dirs, names);
     for (size_t i = 0; i < dirs.n; i++) {
       if (i) fputs("\n", stdout);
       printf("Cow files in %s:\n", dirs.v[i]);
       print_name_list(names[i]);
     }
   } else {
-    List all = {0};
-    for (size_t i = 0; i < dirs.n; i++)
-      for (size_t k = 0; k < names[i]->n; k++) list_push(&all, names[i]->v[k]);
-    qsort(all.v, all.n, sizeof(char *), cmp_str);
-    Buf out = {0};
-    for (size_t k = 0; k < all.n; k++) {
-      if (k && strcmp(all.v[k], all.v[k - 1]) == 0) continue;
-      if (out.len) buf_push(&out, '\n');
-      buf_append(&out, all.v[k], strlen(all.v[k]));
-    }
-    buf_push(&out, '\n');
-    fputs(out.p, stdout);
+    List all = cow_names();
+    for (size_t k = 0; k < all.n; k++) printf("%s\n", all.v[k]);
+    if (!all.n) fputs("\n", stdout);
   }
   exit(0);
+}
+
+/* -r: one of the names -l lists, at random, looked up in the cowpath alone. */
+static char *random_cow(void) {
+  List names = cow_names();
+  // With no cowfile at all, the reference looks up an undefined name, which reads as ''.
+  const char *name = names.n ? names.v[arc4random_uniform((uint32_t)names.n)] : "";
+  return cow_from_cowpath(name);
 }
 
 /* ---------- balloon ---------- */
@@ -1428,7 +1456,7 @@ int main(int argc, char **argv) {
   if (o.w) { free(eyes); eyes = xstrndup("OO", 2); }
   if (o.y) { free(eyes); eyes = xstrndup("..", 2); }
 
-  char *cow = get_cow(o.f);
+  char *cow = o.r ? random_cow() : get_cow(o.f);
 
   fputs(balloon, stdout);
   fputs(cow, stdout);

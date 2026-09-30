@@ -2,7 +2,7 @@ cowsay version 3.8.4 (cowsay.wasm 0.2.0)
 
 Usage:
 
-    cowsay [-bdgpstwy] [-f <cowfile>] [-e <eyes>] [-T <tongue>]
+    cowsay [-bdgpstwy] [-f <cowfile>] [-r] [-e <eyes>] [-T <tongue>]
         [-W <wrapcolumn>] [-n]
         <message>
 
@@ -18,6 +18,8 @@ Options:
         cow defined in a cowdir on the cowpath (without the '.cow' file extension), or the
         path to a cowfile (with the '.cow' file extension). `cowsay -l` will list the
         names of available cows.
+
+    -r selects a random cowfile from those present on the cowpath.
 
     -e <eyes> defines a custom eye appearance. <eyes> should be a two-character string.
         It is up to you whether they actually look like eyes.

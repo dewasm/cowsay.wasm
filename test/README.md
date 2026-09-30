@@ -73,7 +73,7 @@ The following behaviors of the reference are bugs with no value to preserve and 
 - A cowfile's `($eyes)` is false only for an empty `$eyes`.
   Perl takes `"0"` as false too, so the reference shows the default `..` for `cowsay -e 0 -f small`.
 - The help names this build beside the cowsay it implements: `version 3.8.4 (cowsay.wasm 0.2.0)`.
-  It also leaves out `-r` and `-C`, which this build does not have.
+  It also leaves out `-C`, which this build does not have.
 - A relative path in `-f`, such as `-f cows/tux.cow`, reads that file.
   The reference loads it with `do`, which searches `@INC` unless the path starts with `./` or `../`,
   so it prints the balloon with no cow.
@@ -86,7 +86,8 @@ The following behaviors of the reference are bugs with no value to preserve and 
 ### Outside the specification
 
 - `--help` and `--version`, whose Getopt::Std output embeds the host Perl version.
-- `-r` and `-C`, which this build does not have.
+- `-C`, which this build does not have.
+- Which cowfile `-r` picks: any of those `-l` lists, each as likely.
 - A subdirectory of a cowpath directory, whose cowfiles the reference names as `dir/name`.
 - The built-in cowfiles in the `-l` list on a terminal: the reference names its own directory there.
 - A `COWSAY_ONLY_COWPATH` that only rounding makes 1, such as `1.0000000000000000001`.

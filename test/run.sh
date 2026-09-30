@@ -478,6 +478,15 @@ COWS=$EXTRA with_env COWSAY_ONLY_COWPATH=2 -- t_pathonly cowpath-only-2 '' -f de
 COWS=$EXTRA with_env COWSAY_ONLY_COWPATH=1 -- t_pathonly cowpath-only-builtin '' -f tux moo
 COWS=$EXTRA with_env COWSAY_ONLY_COWPATH=1 -- t_pathonly cowpath-only-list '' -l
 
+section random
+# A cowpath of one cowfile makes -r certain, and -r wins over -f.
+ONE=$TMP/one
+mkdir "$ONE" "$TMP/none"
+cp cows/tux.cow "$ONE/only.cow"
+COWS=$ONE with_env COWSAY_ONLY_COWPATH=1 -- t_pathonly random-one '' -r moo
+COWS=$ONE with_env COWSAY_ONLY_COWPATH=1 -- t_pathonly random-over-f '' -r -f default moo
+COWS=$TMP/none with_env COWSAY_ONLY_COWPATH=1 -- t_pathonly random-none '' -r moo
+
 section heredoc
 # Each case is a cowfile of one body line, found through a COWPATH of its own.
 BODIES=$TMP/bodies
@@ -682,7 +691,7 @@ submodule_refused mstill3-cowsay-files motivational-whale 19 \
 submodule_refused mstill3-cowsay-files snail 12 'unescaped @ in cowfile'
 
 section usage
-# Intended fix: the help names this build beside the cowsay it implements, and leaves out -r and -C.
+# Intended fix: the help names this build beside the cowsay it implements, and leaves out -C.
 fixed usage-h 0 '' -h
 fixed usage-n-args 1 '' -n moo
 fixed usage-h-precedence 0 '' -h -l
