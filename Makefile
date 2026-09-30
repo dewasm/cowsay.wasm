@@ -17,7 +17,7 @@ UCD_FILES = $(UCD)/EastAsianWidth.txt $(UCD)/DerivedCoreProperties.txt \
             $(UCD)/DerivedGeneralCategory.txt $(UCD)/emoji-data.txt \
             $(UCD)/GraphemeBreakProperty.txt
 
-.PHONY: all check check-width check-native check-wasm check-size check-submodules lint \
+.PHONY: all check check-width check-native check-wasm check-size check-third-party-cows lint \
         update-ucd clean
 
 all: cowsay.wasm
@@ -50,8 +50,8 @@ check-wasm: cowsay.wasm
 
 # Every cowfile of the submodules under test/submodules, outside `make check`.
 # It runs natively unless COWSAY_TEST_MODE=wasm.
-check-submodules: $(if $(filter wasm,$(COWSAY_TEST_MODE)),cowsay.wasm,cowsay-native)
-	@bash test/run.sh --all-submodules
+check-third-party-cows: $(if $(filter wasm,$(COWSAY_TEST_MODE)),cowsay.wasm,cowsay-native)
+	@bash test/run.sh --third-party-cows
 
 check-size: cowsay.wasm
 	@size=$$(wc -c < cowsay.wasm | tr -d ' '); \

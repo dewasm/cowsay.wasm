@@ -12,7 +12,7 @@
 #
 # COWSAY_TEST_MODE=wasm runs cowsay.wasm under wasmtime instead of cowsay-native.
 #
-# `run.sh --all-submodules` runs every cowfile of the submodules under test/submodules instead.
+# `run.sh --third-party-cows` runs every cowfile of the submodules under test/submodules instead.
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -308,7 +308,7 @@ all_of_submodule() { # <submodule>
   sort "$TMP/reasons" | uniq -c | sort -rn
 }
 
-if [ "${1-}" = --all-submodules ]; then
+if [ "${1-}" = --third-party-cows ]; then
   for entry in "${SUBMODULES[@]}"; do
     all_of_submodule "${entry%%/*}"
   done
@@ -498,7 +498,7 @@ cow_refused() { # <name> <line-number> <message> <line>...
 }
 
 section submodules
-# Cowfiles of the submodules under test/submodules; `make check-submodules` runs all of them.
+# Cowfiles of the submodules under test/submodules; `make check-third-party-cows` runs all of them.
 submodule_case() { # <submodule> <name>
   COWS=$(submodule_cows "$1") t_pathonly "$1-$2" '' -f "$2" moo
 }
