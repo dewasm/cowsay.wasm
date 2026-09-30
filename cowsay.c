@@ -758,8 +758,8 @@ static int match_condition(const char **p, int lineno) {
   r = skip_ws(r);
   int holds;
   if (match_lit(&r, ")")) {
-    // Perl's false strings are "" and "0".
-    holds = eyes[0] != '\0' && strcmp(eyes, "0") != 0;
+    // Intended fix: Perl takes "0" as false too, which drops the eye that `-e 0` asks for.
+    holds = eyes[0] != '\0';
   } else {
     int negated = match_lit(&r, "ne");
     if (!negated && !match_lit(&r, "eq")) return -1;

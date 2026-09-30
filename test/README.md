@@ -63,6 +63,8 @@ The following behaviors of the reference are bugs with no value to preserve and 
   it then returns its argument count, so that the message becomes `3`.
 - Any remaining argument selects the argument message.
   The reference instead tests `unless ($ARGV[0])`, so `cowsay 0` and `cowsay ""` wait on stdin.
+- A cowfile's `($eyes)` is false only for an empty `$eyes`.
+  The reference takes `"0"` as false too, so `cowsay -e 0 -f small` shows the default `..`.
 - `-f` with a missing path containing `/` reports `Could not find ... cowfile!` and exits 2.
   The reference instead runs `do $full` unchecked, prints the balloon with no cow, and exits 0.
 - A usage error exits with `EX_USAGE` (64) rather than the reference's 255;
@@ -152,7 +154,7 @@ The statements before it are `use utf8;` and the assignments below, each on one 
 - `$var = substr($eyes, 0, 1);` copies the character at that position instead, as `clawd.cow` does.
 - `$var .= ($other x 2);` appends a variable twice, as `three-eyes.cow` does to `$eyes`.
 - `$eyes = "..." unless ($eyes);` fills in a default, as `small.cow` does.
-  Perl's false strings are `""` and `"0"`.
+  Only an empty `$eyes` is false here, one of the intended fixes.
 - `$eyes = "..." if ($eyes eq "...");` replaces one value with another;
   `clawd.cow` blanks the default `oo` that way, so its eye cells stay plain until `-e` fills them.
   `if` and `unless` each take `($eyes)`, `($eyes eq "...")` or `($eyes ne "...")`.

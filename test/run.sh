@@ -403,8 +403,8 @@ for cow in cows/*.cow; do
 done
 t cow-suffix '' -f default.cow moo
 t cow-small-empty-eyes '' -e '' -f small moo
-# Perl's false strings are "" and "0".
-t cow-small-zero-eyes '' -e 0 -f small moo
+# Intended fix: `-e 0` keeps its eye (the reference takes "0" as false and fills in the default).
+fixed cow-small-zero-eyes 0 '' -e 0 -f small moo
 t cow-three-eyes-e '' -e ab -f three-eyes moo
 t cow-udder-e '' -e ab -f udder moo
 t cow-clawd-eyes '' -e '><' -f clawd moo
