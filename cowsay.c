@@ -446,6 +446,19 @@ static const char *var_value(const char *name) {
   return get_cow_var(name);
 }
 
+/* Whether Perl reads what follows an unbraced $name as an element or a package variable. */
+static int subscript_follows(const char *p) {
+  if (*p == '[' || *p == '{') return 1;
+  if (p[0] == '-' && p[1] == '>') return p[2] == '[' || p[2] == '{';
+  if (p[0] == ':' && p[1] == ':') return 1;
+  return p[0] == '\'' && is_ident_start(p[1]);
+}
+
+/* Whether Perl interpolates an array at an @ followed by c; toke.c scan_const lists these. */
+static int at_interpolates(char c) {
+  return is_ident(c) || (c != '\0' && strchr(":'{$+-", c) != NULL);
+}
+
 static void interpolate_body_line(Buf *out, const char *line, size_t n, int lineno) {
   for (size_t i = 0; i < n;) {
     char c = line[i];
@@ -471,19 +484,17 @@ static void interpolate_body_line(Buf *out, const char *line, size_t n, int line
         if (!name || *p != '}') cow_error(lineno, "unsupported ${...} form");
         p++;
       } else {
+        // Perl reads a special variable here, or skips spaces to find a name.
         name = match_ident(&p);
-      }
-      if (!name) {
-        buf_push(out, '$');
-        i++;
-        continue;
+        if (!name) cow_error(lineno, "unescaped $ in cowfile");
+        if (subscript_follows(p)) cow_error(lineno, "unsupported subscript in cowfile");
       }
       const char *val = var_value(name);
       if (!val) cow_error(lineno, "unknown variable in cowfile");
       buf_append(out, val, strlen(val));
       free(name);
       i = (size_t)(p - line);
-    } else if (c == '@' && i + 1 < n && is_ident_start(line[i + 1])) {
+    } else if (c == '@' && i + 1 < n && at_interpolates(line[i + 1])) {
       cow_error(lineno, "unescaped @ in cowfile");
     } else {
       buf_push(out, c);
