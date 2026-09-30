@@ -17,6 +17,22 @@ The suite clears `LANG`, `LC_ALL`, `LC_CTYPE` and `COWSAY_AMBIGUOUS_WIDTH` first
 a wasm run sees no environment, so a native run must not read the machine's.
 The width cases hand in what they need one at a time.
 
+The fuzz generator stays inside the specification.
+It therefore emits neither a width below 2 nor a first message word of `0`;
+those are deliberate fixes, and the snapshot cases already cover them.
+
+`submodules/cowsay-files` holds [paulkaefer/cowsay-files](https://github.com/paulkaefer/cowsay-files),
+a collection of third-party cowfiles, at a fixed commit.
+It is a submodule because it carries no license that would let us copy its files.
+`make check` runs 13 of its cowfiles, one for each shape the collection writes.
+`make check-cowsay-files` runs all of them, natively, or under wasmtime with `COWSAY_TEST_MODE=wasm`.
+It checks that each one matches the reference or is refused, and counts the refusals by reason.
+A cowfile is Perl code that the reference runs with `do`,
+so a cowfile reaches the reference only after our parser accepts it.
+Updating the submodule is a reviewed change like any other.
+
+The suite reads these files, with paths relative to `test/`:
+
 | Path | What it holds |
 | --- | --- |
 | `reference/cowsay` | cowsay 3.03 unmodified, the reference every differential case runs against |
@@ -25,19 +41,7 @@ The width cases hand in what they need one at a time.
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
 | `../ucd/` | the UCD files as published; the tables and the break test are read from there |
-| `submodules/cowsay-files/` | the submodule [paulkaefer/cowsay-files](https://github.com/paulkaefer/cowsay-files), at a fixed commit |
-
-The collection is a submodule because it carries no license that would let us copy its files.
-`make check` runs 13 of its cowfiles, one for each shape the collection writes.
-`make check-cowsay-files` runs all of them, natively, or under wasmtime with `COWSAY_TEST_MODE=wasm`.
-It checks that each one matches the reference or is refused, and counts the refusals by reason.
-A cowfile is Perl code that the reference runs with `do`,
-so a cowfile reaches the reference only after our parser accepts it.
-Updating the submodule is a reviewed change like any other.
-
-The fuzz generator stays inside the specification.
-It therefore emits neither a width below 2 nor a first message word of `0`;
-those are deliberate fixes, and the snapshot cases already cover them.
+| `submodules/` | third-party cowfile collections, each a Git submodule at a fixed commit |
 
 ## Output specification
 
