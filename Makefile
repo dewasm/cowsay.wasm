@@ -9,12 +9,15 @@ SRC = cowsay.c width.c
 
 # The version tools/fetch-ucd.sh pulls into ucd/; the tables follow what is vendored there.
 UNICODE_VERSION = 18.0.0
+
+# The README promises a binary under 100 kB; check-size holds every build to it.
+WASM_SIZE_LIMIT = 100000
 UCD = ucd
 UCD_FILES = $(UCD)/EastAsianWidth.txt $(UCD)/DerivedCoreProperties.txt \
             $(UCD)/DerivedGeneralCategory.txt $(UCD)/emoji-data.txt \
             $(UCD)/GraphemeBreakProperty.txt
 
-.PHONY: all check check-width check-native check-wasm lint update-ucd clean
+.PHONY: all check check-width check-native check-wasm check-size lint update-ucd clean
 
 all: cowsay.wasm
 
@@ -32,7 +35,7 @@ cowsay-native: $(SRC) cows_embedded.h unicode_tables.h width.h
 width-test: test/width-test.c width.c unicode_tables.h width.h $(UCD)/GraphemeBreakTest.txt
 	$(CC) $(CFLAGS) -O1 -I. -o $@ test/width-test.c width.c
 
-check: check-width check-native check-wasm
+check: check-width check-native check-wasm check-size
 
 # The Unicode side: the UCD's own break test, plus the width and rendition rules cowsay relies on.
 check-width: width-test
@@ -43,6 +46,13 @@ check-native: cowsay-native
 
 check-wasm: cowsay.wasm
 	@COWSAY_TEST_MODE=wasm bash test/run.sh
+
+check-size: cowsay.wasm
+	@size=$$(wc -c < cowsay.wasm | tr -d ' '); \
+	if [ "$$size" -ge $(WASM_SIZE_LIMIT) ]; then \
+	  echo "cowsay.wasm: $$size bytes, not under $(WASM_SIZE_LIMIT)" >&2; exit 1; \
+	fi; \
+	echo "cowsay.wasm: $$size bytes, under $(WASM_SIZE_LIMIT)"
 
 # The README picture of clawd, whose colors a code block cannot show.
 docs/clawd.svg: cowsay-native tools/ansi-to-svg.pl cows/clawd.cow

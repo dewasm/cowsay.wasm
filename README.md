@@ -29,6 +29,7 @@ $ make cowsay-native # host binary, same behavior, used by the tests
 $ make check         # the differential test suite in both modes
 $ make check-native  # only the host binary, against the vendored reference
 $ make check-wasm    # only cowsay.wasm, under wasmtime
+$ make check-size    # cowsay.wasm is under the 100 kB stated above
 $ make lint          # shellcheck the scripts, and compile-check the Perl generator
 $ make update-ucd    # the only networked step: refresh ucd/ at UNICODE_VERSION
 ```
