@@ -18,8 +18,9 @@ The suite clears `LANG`, `LC_ALL`, `LC_CTYPE` and `COWSAY_AMBIGUOUS_WIDTH`.
 A wasm run sees no environment, so a native run must not read the machine's.
 A width case sets the ones it tests.
 
-Fuzz cases stay inside the specification: no width below 2, and no first message word `0`.
-Those are deliberate fixes, which the snapshots cover.
+Fuzz cases avoid the intended fixes, where the output differs from the reference:
+a width below 2, and a first message word `0`.
+The snapshots cover those.
 
 `submodules/cowsay-files` is [paulkaefer/cowsay-files](https://github.com/paulkaefer/cowsay-files) at a fixed commit.
 It is a submodule because it has no license that lets us copy its files.
