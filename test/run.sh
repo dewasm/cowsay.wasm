@@ -495,7 +495,7 @@ collection_refused() { # <name> <line-number> <message>
 collection_case abu-apple
 collection_case 47
 collection_case cartman
-# 52 variables, some named with two letters.
+# Many variables, some named with two letters.
 collection_case baby_yoda
 # $x inside a literal.
 collection_case ignignokt

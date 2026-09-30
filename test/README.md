@@ -22,10 +22,8 @@ Fuzz cases avoid the intended fixes, where the output differs from the reference
 a width below 2, and a first message word `0`.
 The snapshots cover those.
 
-`submodules/cowsay-files` is [paulkaefer/cowsay-files](https://github.com/paulkaefer/cowsay-files) at a fixed commit.
-It is a submodule because it has no license that lets us copy its files.
-`make check` runs 13 of its cowfiles, and `make check-cowsay-files` runs all of them.
-Each one must match the reference or be refused.
+`submodules/` holds repositories of cowfiles as submodules, each at a fixed commit.
+The suite also tests some of their cowfiles, and each one must match the reference or be refused.
 The reference runs a cowfile with Perl `do`, so only cowfiles our parser accepts reach it.
 
 The suite reads these files, with paths relative to `test/`:
@@ -38,7 +36,7 @@ The suite reads these files, with paths relative to `test/`:
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
 | `../ucd/` | the UCD files as published, read for the tables and the break test |
-| `submodules/` | third-party cowfile collections, each a Git submodule at a fixed commit |
+| `submodules/` | repositories of cowfiles, each a submodule at a fixed commit |
 
 ## Output specification
 
