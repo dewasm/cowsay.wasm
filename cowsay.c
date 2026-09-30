@@ -1016,60 +1016,128 @@ static const struct embedded_cow *find_embedded(const char *name) {
   return NULL;
 }
 
-static char *get_cow(const char *f) {
-  const char *cowpath = getenv("COWPATH");
-  if (strchr(f, '/')) {
-    size_t n;
-    char *data = read_file(f, &n);
-    if (!data) {
-      fprintf(stderr, "%s: Could not find cowfile for '%s'!\n", progname, f);
-      exit(2);
+/* ---------- cowpath ---------- */
+
+// The built-in cowfiles stand first in the cowpath, where the reference has its own.
+static const char builtin_dir[] = "(embedded)";
+
+/* Perl's `$s == 1` for the decimal number at the start of s, after whitespace.
+ * The digits are compared as written, since strtod would pull a float parser into the build.
+ */
+static int perl_num_is_one(const char *s) {
+  while (*s == ' ' || (*s >= '\t' && *s <= '\r')) s++;
+  if (*s == '+') s++;
+  // The significant digits, and the power of ten of the first one.
+  const char *first = NULL, *last = NULL;
+  long power = -1;
+  int before_point = 1;
+  for (; (*s >= '0' && *s <= '9') || (*s == '.' && before_point); s++) {
+    if (*s == '.') {
+      before_point = 0;
+      continue;
     }
-    cow_source = f;
-    char *cow = parse_cow(data, n);
-    free(data);
-    return cow;
+    if (!first && *s == '0') {
+      if (!before_point) power--;
+      continue;
+    }
+    if (!first) first = s;
+    if (*s != '0') last = s;
+    if (before_point) power++;
   }
-  if (cowpath && *cowpath) {
-    const char *p = cowpath;
-    while (1) {
-      const char *colon = strchr(p, ':');
-      size_t dlen = colon ? (size_t)(colon - p) : strlen(p);
-      for (int suffix = 0; suffix < 2; suffix++) {
-        Buf path = {0};
-        buf_append(&path, p, dlen);
-        buf_push(&path, '/');
-        buf_append(&path, f, strlen(f));
-        if (suffix) buf_append(&path, ".cow", 4);
-        if (is_regular_file(path.p)) {
-          size_t n;
-          char *data = read_file(path.p, &n);
-          if (data) {
-            cow_source = path.p;
-            char *cow = parse_cow(data, n);
-            free(data);
-            free(path.p);
-            return cow;
-          }
-        }
-        free(path.p);
-      }
-      if (!colon) break;
-      p = colon + 1;
+  if (!first) return 0;
+  if (*s == 'e' || *s == 'E') {
+    const char *q = s + 1;
+    int negative = *q == '-';
+    if (*q == '+' || *q == '-') q++;
+    long exponent = 0;
+    for (; *q >= '0' && *q <= '9' && exponent < 100000; q++) exponent = exponent * 10 + (*q - '0');
+    power += negative ? -exponent : exponent;
+  }
+  // 1 is the one significant digit 1, in the ones place.
+  return first == last && *first == '1' && power == 0;
+}
+
+/* The directories to search for a cowfile, in order and without repeats.
+ * COWPATH comes after the built-in cowfiles, or alone under COWSAY_ONLY_COWPATH=1.
+ * Perl's split on ':' keeps a leading empty field and drops trailing empty fields.
+ */
+static List cowpath_dirs(void) {
+  List dirs = {0};
+  const char *cowpath = getenv("COWPATH");
+  const char *only = getenv("COWSAY_ONLY_COWPATH");
+  // `if ($ENV{'COWPATH'})`: "" and "0" are false.
+  int has_cowpath = cowpath && *cowpath && strcmp(cowpath, "0") != 0;
+  if (!(has_cowpath && only && perl_num_is_one(only))) list_push(&dirs, (char *)builtin_dir);
+  if (!has_cowpath) return dirs;
+  size_t len = strlen(cowpath);
+  while (len > 0 && cowpath[len - 1] == ':') len--;
+  for (size_t start = 0; start <= len;) {
+    size_t end = start;
+    while (end < len && cowpath[end] != ':') end++;
+    char *dir = xstrndup(cowpath + start, end - start);
+    int seen = 0;
+    for (size_t i = 0; i < dirs.n; i++)
+      seen |= dirs.v[i] != builtin_dir && strcmp(dirs.v[i], dir) == 0;
+    if (seen) {
+      free(dir);
+    } else {
+      list_push(&dirs, dir);
     }
-  } else {
-    const struct embedded_cow *e = find_embedded(f);
+    start = end + 1;
+  }
+  return dirs;
+}
+
+static char *load_cow_file(const char *path) {
+  size_t n;
+  char *data = read_file(path, &n);
+  if (!data) return NULL;
+  cow_source = path;
+  char *cow = parse_cow(data, n);
+  free(data);
+  return cow;
+}
+
+/* The cow of name in dir: the file name itself, then name.cow, as the reference tries them. */
+static char *cow_in_dir(const char *dir, const char *name) {
+  if (dir == builtin_dir) {
+    const struct embedded_cow *e = find_embedded(name);
     if (!e) {
-      Buf name = {0};
-      buf_append(&name, f, strlen(f));
-      buf_append(&name, ".cow", 4);
-      e = find_embedded(name.p);
-      free(name.p);
+      Buf with_suffix = {0};
+      buf_append(&with_suffix, name, strlen(name));
+      buf_append(&with_suffix, ".cow", 4);
+      e = find_embedded(with_suffix.p);
+      free(with_suffix.p);
     }
-    if (e) {
-      cow_source = e->name;
-      return parse_cow((const char *)e->data, e->len);
-    }
+    if (!e) return NULL;
+    cow_source = e->name;
+    return parse_cow((const char *)e->data, e->len);
+  }
+  for (int suffix = 0; suffix < 2; suffix++) {
+    Buf path = {0};
+    buf_append(&path, dir, strlen(dir));
+    buf_push(&path, '/');
+    buf_append(&path, name, strlen(name));
+    if (suffix) buf_append(&path, ".cow", 4);
+    char *cow = is_regular_file(path.p) ? load_cow_file(path.p) : NULL;
+    if (cow) return cow; // cow_source keeps path.p
+    free(path.p);
+  }
+  return NULL;
+}
+
+static char *get_cow(const char *f) {
+  // A file of that name comes first, as in the reference.
+  // Intended fix: the reference loads it with `do`, which searches @INC for a relative path
+  // that starts with neither ./ nor ../, and so prints no cow; this reads the file.
+  if (is_regular_file(f)) {
+    char *cow = load_cow_file(f);
+    if (cow) return cow;
+  }
+  List dirs = cowpath_dirs();
+  for (size_t i = 0; i < dirs.n; i++) {
+    char *cow = cow_in_dir(dirs.v[i], f);
+    if (cow) return cow;
   }
   fprintf(stderr, "%s: Could not find cowfile for '%s'!\n", progname, f);
   exit(2); // Perl die picks up $! = ENOENT from the failed file tests
@@ -1113,41 +1181,33 @@ static List *cows_in_dir(const char *dir) {
   return names;
 }
 
-/* Each cowpath directory with its cowfile names; the built-in cowfiles stand for one. */
+/* Each cowpath directory that holds a cowfile, with the names of its cowfiles. */
 static void cowpath_listing(List *dirs, List **names) {
-  const char *cowpath = getenv("COWPATH");
-  if (!cowpath || !*cowpath) {
-    List *builtin = xrealloc(NULL, sizeof *builtin);
-    *builtin = (List){0};
-    for (size_t i = 0; i < sizeof embedded_cows / sizeof embedded_cows[0]; i++) {
-      size_t len = strlen(embedded_cows[i].name);
-      list_push(builtin, xstrndup(embedded_cows[i].name, len - 4));
+  List all = cowpath_dirs();
+  for (size_t i = 0; i < all.n; i++) {
+    List *found;
+    if (all.v[i] == builtin_dir) {
+      found = xrealloc(NULL, sizeof *found);
+      *found = (List){0};
+      for (size_t k = 0; k < sizeof embedded_cows / sizeof embedded_cows[0]; k++) {
+        size_t len = strlen(embedded_cows[k].name);
+        list_push(found, xstrndup(embedded_cows[k].name, len - 4));
+      }
+    } else {
+      found = cows_in_dir(all.v[i]);
     }
-    list_push(dirs, xstrndup("(embedded)", 10));
-    names[0] = builtin;
-    return;
-  }
-  for (const char *p = cowpath;;) {
-    const char *colon = strchr(p, ':');
-    size_t dlen = colon ? (size_t)(colon - p) : strlen(p);
-    char *dir = xstrndup(p, dlen);
-    List *found = cows_in_dir(dir);
     // A directory that cannot be read, or holds no cowfile, is left out.
     if (found && found->n) {
       names[dirs->n] = found;
-      list_push(dirs, dir);
-    } else {
-      free(dir);
+      list_push(dirs, all.v[i]);
     }
-    if (!colon) break;
-    p = colon + 1;
   }
 }
 
 /* A terminal gets the cowfiles under each directory; anything else gets their names alone. */
 static void list_cowfiles(void) {
   const char *cowpath = getenv("COWPATH");
-  size_t max_dirs = 1;
+  size_t max_dirs = 2;
   for (const char *p = cowpath ? cowpath : ""; *p; p++) max_dirs += *p == ':';
   List dirs = {0};
   List **names = xrealloc(NULL, max_dirs * sizeof *names);
