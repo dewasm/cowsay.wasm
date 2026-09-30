@@ -41,6 +41,8 @@ jobs:
           echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
       - name: Build
         run: make cowsay.wasm
+      - name: Size against the README
+        run: make check-size
       - name: Differential test under wasmtime
         run: make check-wasm
       - uses: actions/upload-artifact@v7
