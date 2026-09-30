@@ -1,3 +1,12 @@
-[submodule "test/submodules/cowsay-files"]
-	path = test/submodules/cowsay-files
+[submodule "test/submodules/paulkaefer-cowsay-files"]
+	path = test/submodules/paulkaefer-cowsay-files
 	url = https://github.com/paulkaefer/cowsay-files
+[submodule "test/submodules/cowsay-org-cowsay"]
+	path = test/submodules/cowsay-org-cowsay
+	url = https://github.com/cowsay-org/cowsay
+[submodule "test/submodules/phmajerus-cowfiles"]
+	path = test/submodules/phmajerus-cowfiles
+	url = https://github.com/PhMajerus/CowFiles
+[submodule "test/submodules/mstill3-cowsay-files"]
+	path = test/submodules/mstill3-cowsay-files
+	url = https://github.com/mstill3/cowsay-files

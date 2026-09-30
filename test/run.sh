@@ -12,7 +12,7 @@
 #
 # COWSAY_TEST_MODE=wasm runs cowsay.wasm under wasmtime instead of cowsay-native.
 #
-# `run.sh --all-cowsay-files` runs every cowfile of test/submodules/cowsay-files instead.
+# `run.sh --third-party-cows` runs every cowfile of the submodules under test/submodules instead.
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -23,11 +23,26 @@ unset LANG LC_ALL LC_CTYPE COWSAY_AMBIGUOUS_WIDTH
 ROOT=$PWD
 COWS=$ROOT/cows
 REF=$ROOT/test/reference/cowsay
-COWSAY_FILES=$ROOT/test/submodules/cowsay-files/cows
-if [ ! -d "$COWSAY_FILES" ]; then
-  echo "test/submodules/cowsay-files is empty: run git submodule update --init" >&2
-  exit 1
-fi
+# Each submodule under test/submodules, with the directory of its cowfiles.
+SUBMODULES=(
+  paulkaefer-cowsay-files/cows
+  cowsay-org-cowsay/share/cowsay/cows
+  phmajerus-cowfiles/cows
+  mstill3-cowsay-files/cows
+)
+for entry in "${SUBMODULES[@]}"; do
+  if [ ! -d "$ROOT/test/submodules/$entry" ]; then
+    echo "test/submodules/${entry%%/*} is empty: run git submodule update --init" >&2
+    exit 1
+  fi
+done
+
+submodule_cows() { # <submodule>
+  local entry
+  for entry in "${SUBMODULES[@]}"; do
+    [ "${entry%%/*}" = "$1" ] && echo "$ROOT/test/submodules/$entry"
+  done
+}
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -45,27 +60,31 @@ fi
 
 pass=0
 fail=0
+refused=0
 FAILLOG=$TMP/failures.log
 : >"$FAILLOG"
 
 # Progress display: one line per section, one dot per check, and the failures at the end.
+# A third-party cowfile outside the grammar shows as an r: refused, which is not a failure.
 # Colors are on when stdout is a terminal.
 # NO_COLOR turns them off; CLICOLOR_FORCE keeps them when the output is redirected.
 if { [ -t 1 ] || [ -n "${CLICOLOR_FORCE-}" ]; } && [ -z "${NO_COLOR-}" ]; then
   C_OK=$'\033[32m'
   C_BAD=$'\033[31m'
+  C_REFUSED=$'\033[33m'
   C_NAME=$'\033[1m'
   C_DIM=$'\033[2m'
   C_OFF=$'\033[0m'
 else
-  C_OK='' C_BAD='' C_NAME='' C_DIM='' C_OFF=''
+  C_OK='' C_BAD='' C_REFUSED='' C_NAME='' C_DIM='' C_OFF=''
 fi
 
 DOTS_PER_LINE=64
-LABEL_WIDTH=12
+LABEL_WIDTH=10
 section_name=''
 section_pass=0
 section_fail=0
+section_refused=0
 section_dots=0
 
 section() { # <name>
@@ -73,6 +92,7 @@ section() { # <name>
   section_name=$1
   section_pass=0
   section_fail=0
+  section_refused=0
   section_dots=0
   # The dot color stays on for the whole section, so a run of checks costs one escape, not one each.
   printf '%s%-*s%s %s' "$C_NAME" "$LABEL_WIDTH" "$section_name" "$C_OFF" "$C_OK"
@@ -81,19 +101,25 @@ section() { # <name>
 section_end() {
   [ -n "$section_name" ] || return 0
   printf '%s' "$C_OFF"
-  if [ "$section_fail" -eq 0 ]; then
-    printf ' %s%d ok%s\n' "$C_DIM" "$section_pass" "$C_OFF"
-  else
-    printf ' %s%d failed%s, %d ok\n' "$C_BAD" "$section_fail" "$C_OFF" "$section_pass"
+  if [ "$section_fail" -gt 0 ]; then
+    printf ' %s%d failed%s,' "$C_BAD" "$section_fail" "$C_OFF"
   fi
+  if [ "$section_refused" -gt 0 ]; then
+    printf ' %s%d refused%s,' "$C_REFUSED" "$section_refused" "$C_OFF"
+  fi
+  printf ' %s%d ok%s\n' "$C_DIM" "$section_pass" "$C_OFF"
   section_name=''
 }
 
-tick() { # <ok|failed>
+tick() { # <ok|refused|failed>
   if [ "$1" = ok ]; then
     pass=$((pass + 1))
     section_pass=$((section_pass + 1))
     printf '.'
+  elif [ "$1" = refused ]; then
+    refused=$((refused + 1))
+    section_refused=$((section_refused + 1))
+    printf '%sr%s' "$C_REFUSED" "$C_OK"
   else
     fail=$((fail + 1))
     section_fail=$((section_fail + 1))
@@ -260,41 +286,49 @@ finish() {
   fi
   # The trailing blank line keeps the two modes of `make check` apart.
   if [ "$fail" -eq 0 ]; then
-    printf '\n%s%s: %d ok%s in %ds\n\n' "$C_OK" "$MODE" "$pass" "$C_OFF" "$SECONDS"
+    printf '\n%s%s:%s' "$C_OK" "$MODE" "$C_OFF"
   else
-    printf '\n%s%s: %d failed%s, %d ok, in %ds\n\n' \
-      "$C_BAD" "$MODE" "$fail" "$C_OFF" "$pass" "$SECONDS"
+    printf '\n%s%s: %d failed%s,' "$C_BAD" "$MODE" "$fail" "$C_OFF"
   fi
+  if [ "$refused" -gt 0 ]; then
+    printf ' %s%d refused%s,' "$C_REFUSED" "$refused" "$C_OFF"
+  fi
+  printf ' %d ok in %ds\n\n' "$pass" "$SECONDS"
   [ "$fail" -eq 0 ]
 }
 
-# Each cowfile of the submodule matches the reference, or is refused with an error naming the line.
+# Each cowfile of a submodule matches the reference, or is refused with an error naming the line.
 # A cowfile is Perl code that the reference runs with `do`,
 # so the reference only sees what our parser accepted.
-all_cowsay_files() {
-  local cow name before matched=0
+all_of_submodule() { # <submodule>
+  local dir cow name
+  dir=$(submodule_cows "$1")
   : >"$TMP/reasons"
-  section cowsay-files
-  for cow in "$COWSAY_FILES"/*.cow; do
+  section "$1"
+  for cow in "$dir"/*.cow; do
     name=$(basename "$cow" .cow)
-    COWS=$COWSAY_FILES run_ours 0 path /dev/null -f "$name" moo
+    COWS=$dir run_ours 0 path /dev/null -f "$name" moo
     if [ "$(cat "$TMP/got.code")" = 1 ] && [[ "$(cat "$TMP/got.err")" == "cowsay: $cow:"* ]]; then
       sed 's/^.*:[0-9]*: //' "$TMP/got.err" >>"$TMP/reasons"
-      tick ok
+      tick refused
       continue
     fi
-    COWS=$COWSAY_FILES run_ref 0 /dev/null -f "$name" moo
-    before=$fail
-    report "cowsay-files-$name" path -f "$name" moo
-    [ "$fail" = "$before" ] && matched=$((matched + 1))
+    COWS=$dir run_ref 0 /dev/null -f "$name" moo
+    report "$1-$name" path -f "$name" moo
   done
   section_end
-  printf '\n%d match the reference; %d are refused:\n' "$matched" "$(wc -l <"$TMP/reasons")"
-  sort "$TMP/reasons" | uniq -c | sort -rn
+  sort "$TMP/reasons" | uniq -c | sort -rn |
+    awk -v w="$LABEL_WIDTH" '{ n = $1; sub(/^ *[0-9]+ /, ""); printf "%*s %4d %s\n", w, "", n, $0 }'
 }
 
-if [ "${1-}" = --all-cowsay-files ]; then
-  all_cowsay_files
+if [ "${1-}" = --third-party-cows ]; then
+  for entry in "${SUBMODULES[@]}"; do
+    entry=${entry%%/*}
+    [ "${#entry}" -gt "$LABEL_WIDTH" ] && LABEL_WIDTH=${#entry}
+  done
+  for entry in "${SUBMODULES[@]}"; do
+    all_of_submodule "${entry%%/*}"
+  done
   finish
   exit
 fi
@@ -480,36 +514,61 @@ cow_refused() { # <name> <line-number> <message> <line>...
   cow_refused single-quoted 1 'unsupported cowfile construct' "\$x = 'a';" '$the_cow = <<EOC;' 'EOC'
 }
 
-section cowsay-files
-# Cowfiles of test/submodules/cowsay-files, one for each shape the collection writes.
-# `make check-cowsay-files` runs all of them.
-collection_case() { # <name>
-  COWS=$COWSAY_FILES t_pathonly "cowsay-files-$1" '' -f "$1" moo
+section submodules
+# Cowfiles of the submodules under test/submodules; `make check-third-party-cows` runs all of them.
+submodule_case() { # <submodule> <name>
+  COWS=$(submodule_cows "$1") t_pathonly "$1-$2" '' -f "$2" moo
 }
 
-collection_refused() { # <name> <line-number> <message>
-  expect_refused "cowsay-files-$1" "$COWSAY_FILES" "$1" "$2" "$3"
+submodule_refused() { # <submodule> <name> <line-number> <message>
+  expect_refused "$1-$2" "$(submodule_cows "$1")" "$2" "$3" "$4"
 }
 
+# paulkaefer-cowsay-files: one cowfile for each shape the collection writes.
 # Charc0al's converter; most omit the semicolon after <<EOC and put two spaces before the comment.
-collection_case abu-apple
-collection_case 47
-collection_case cartman
+submodule_case paulkaefer-cowsay-files abu-apple
+submodule_case paulkaefer-cowsay-files 47
+submodule_case paulkaefer-cowsay-files cartman
 # Many variables, some named with two letters.
-collection_case baby_yoda
+submodule_case paulkaefer-cowsay-files baby_yoda
 # $x inside a literal.
-collection_case ignignokt
+submodule_case paulkaefer-cowsay-files ignignokt
 # No comment after the assignments.
-collection_case err
+submodule_case paulkaefer-cowsay-files err
 # Drawn by hand.
-collection_case kidcat
-collection_case tortoise
-collection_case USA
+submodule_case paulkaefer-cowsay-files kidcat
+submodule_case paulkaefer-cowsay-files tortoise
+submodule_case paulkaefer-cowsay-files USA
 # Outside the grammar.
-collection_refused atat 9 'unsupported escape in cowfile'
-collection_refused cake 8 'unescaped @ in cowfile'
-collection_refused golden-eagle 8 'unescaped $ in cowfile'
-collection_refused chiyo-chichi 1 'unsupported cowfile construct'
+submodule_refused paulkaefer-cowsay-files atat 9 'unsupported escape in cowfile'
+submodule_refused paulkaefer-cowsay-files cake 8 'unescaped @ in cowfile'
+submodule_refused paulkaefer-cowsay-files golden-eagle 8 'unescaped $ in cowfile'
+submodule_refused paulkaefer-cowsay-files chiyo-chichi 1 'unsupported cowfile construct'
+
+# cowsay-org-cowsay: the cowfiles that are new since 3.03 or changed; cows/ covers the rest.
+submodule_case cowsay-org-cowsay actually
+submodule_case cowsay-org-cowsay alpaca
+submodule_case cowsay-org-cowsay cupcake
+submodule_case cowsay-org-cowsay fox
+submodule_case cowsay-org-cowsay kiss
+submodule_case cowsay-org-cowsay llama
+submodule_case cowsay-org-cowsay mech-and-cow
+# Single quotes and `ne`, outside the grammar.
+submodule_refused cowsay-org-cowsay sus 4 'unsupported cowfile construct'
+
+# phmajerus-cowfiles: color and Unicode, outside the grammar for now.
+submodule_refused phmajerus-cowfiles alexkidd 7 'unsupported escape in cowfile'
+# CRLF line ends.
+submodule_refused phmajerus-cowfiles clippit 6 'unsupported cowfile construct'
+
+# mstill3-cowsay-files: drawn by hand, most under a comment header.
+submodule_case mstill3-cowsay-files aardvark
+submodule_case mstill3-cowsay-files bird-stork
+# Outside the grammar.
+submodule_refused mstill3-cowsay-files chopper 9 'unsupported backslash at end of line'
+submodule_refused mstill3-cowsay-files griffin 9 'unknown variable in cowfile'
+submodule_refused mstill3-cowsay-files motivational-whale 5 'unsupported heredoc terminator'
+submodule_refused mstill3-cowsay-files snail 12 'unescaped @ in cowfile'
 
 section usage
 # Intended fix: usage exits with EX_USAGE (64) instead of the reference's 255.
