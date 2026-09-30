@@ -19,16 +19,22 @@ void wu_set_ambiguous_wide(int wide) { ambiguous_wide = wide ? 1 : 0; }
 
 /* The property word of a codepoint; zero for everything the tables leave out. */
 static unsigned props_of(unsigned cp) {
-  size_t lo = 0, hi = sizeof unicode_ranges / sizeof unicode_ranges[0];
+  if (cp - HANGUL_FIRST < HANGUL_COUNT) {
+    unsigned gcb = (cp - HANGUL_FIRST) % HANGUL_T_COUNT ? GCB_LVT : GCB_LV;
+    return gcb | UWIDTH_WIDE << 4;
+  }
+  for (size_t k = 0; k < sizeof long_ranges / sizeof long_ranges[0]; k++)
+    if (cp - long_ranges[k].lo <= long_ranges[k].extra) return long_ranges[k].props;
+  size_t lo = 0, hi = sizeof short_ranges / sizeof short_ranges[0];
   while (lo < hi) {
     size_t mid = lo + (hi - lo) / 2;
-    const struct urange *r = &unicode_ranges[mid];
-    if (cp < r->lo) {
+    unsigned e = short_ranges[mid];
+    if (cp < SHORT_FIRST(e)) {
       hi = mid;
-    } else if (cp > r->lo + r->extra) {
+    } else if (cp > SHORT_FIRST(e) + SHORT_EXTRA(e)) {
       lo = mid + 1;
     } else {
-      return r->props;
+      return SHORT_WORD(e);
     }
   }
   return 0;
