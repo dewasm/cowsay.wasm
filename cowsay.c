@@ -406,49 +406,91 @@ static char *match_ident(const char **p) {
   return id;
 }
 
-/* Scratch variables assigned in a cowfile preamble ($extra, $eye1, ...). */
-static List cow_var_names;
-static List cow_var_vals;
+/* What a Perl string holds beyond ASCII, which decides the bytes Perl prints for it.
+ * Perl prints a string with a character above U+00FF as UTF-8, and one without as a byte each.
+ */
+typedef struct {
+  int wide;        // a character above U+00FF
+  int latin1_line; // the first line of an escape from \x80 to \xFF, or 0
+  int byte_line;   // the first line of a raw byte above 0x7F, or 0
+} Enc;
 
-static void set_cow_var(char *name, char *val) {
-  for (size_t i = 0; i < cow_var_names.n; i++)
-    if (strcmp(cow_var_names.v[i], name) == 0) {
-      free(cow_var_vals.v[i]);
-      cow_var_vals.v[i] = val;
-      free(name);
-      return;
-    }
-  list_push(&cow_var_names, name);
-  list_push(&cow_var_vals, val);
+static void enc_merge(Enc *into, const Enc *from) {
+  into->wide |= from->wide;
+  if (!into->latin1_line) into->latin1_line = from->latin1_line;
+  if (!into->byte_line) into->byte_line = from->byte_line;
 }
 
-static const char *get_cow_var(const char *name) {
-  for (size_t i = 0; i < cow_var_names.n; i++)
-    if (strcmp(cow_var_names.v[i], name) == 0) return cow_var_vals.v[i];
+static int enc_plain(const Enc *e) { return !e->wide && !e->latin1_line && !e->byte_line; }
+
+/* The parts of Enc that decide the output are never guessed: a cow either prints as Perl
+ * prints it, or is refused here.
+ */
+static void enc_check(const Enc *e) {
+  // Perl would encode each raw byte again as a Latin-1 character.
+  if (e->wide && e->byte_line) cow_error(e->byte_line, "unsupported byte beside a wide character");
+  // Perl would print a lone byte, which is no UTF-8.
+  if (!e->wide && e->latin1_line) cow_error(e->latin1_line, "unsupported escape in cowfile");
+}
+
+/* A scalar that a cowfile preamble sets ($extra, $eye1, $x, ...). */
+typedef struct {
+  char *name;
+  char *val;
+  Enc enc;
+} Var;
+
+static Var *cow_vars;
+static size_t cow_var_count, cow_var_cap;
+
+static Var *find_cow_var(const char *name) {
+  for (size_t i = 0; i < cow_var_count; i++)
+    if (strcmp(cow_vars[i].name, name) == 0) return &cow_vars[i];
   return NULL;
 }
 
+// $eyes, $tongue and $thoughts start from the command line, as text with nothing to encode.
+static Enc eyes_enc, tongue_enc, thoughts_enc;
+
 /* Assign to $thoughts, $eyes, $tongue or a preamble variable; takes ownership of val. */
-static void set_var(const char *name, char *val) {
+static void set_var(const char *name, char *val, Enc enc) {
   if (strcmp(name, "thoughts") == 0) {
     thoughts = val;
+    thoughts_enc = enc;
   } else if (strcmp(name, "eyes") == 0) {
     free(eyes);
     eyes = val;
+    eyes_enc = enc;
   } else if (strcmp(name, "tongue") == 0) {
     free(tongue);
     tongue = val;
+    tongue_enc = enc;
   } else {
-    set_cow_var(xstrndup(name, strlen(name)), val);
+    Var *v = find_cow_var(name);
+    if (!v) {
+      if (cow_var_count == cow_var_cap) {
+        cow_var_cap = cow_var_cap ? cow_var_cap * 2 : 8;
+        cow_vars = xrealloc(cow_vars, cow_var_cap * sizeof *cow_vars);
+      }
+      v = &cow_vars[cow_var_count++];
+      v->name = xstrndup(name, strlen(name));
+      v->val = NULL;
+    }
+    free(v->val);
+    v->val = val;
+    v->enc = enc;
   }
 }
 
 /* The value of $thoughts, $eyes, $tongue or a preamble variable, or NULL. */
-static const char *var_value(const char *name) {
-  if (strcmp(name, "thoughts") == 0) return thoughts;
-  if (strcmp(name, "eyes") == 0) return eyes;
-  if (strcmp(name, "tongue") == 0) return tongue;
-  return get_cow_var(name);
+static const char *var_value(const char *name, Enc *enc) {
+  if (strcmp(name, "thoughts") == 0) return *enc = thoughts_enc, thoughts;
+  if (strcmp(name, "eyes") == 0) return *enc = eyes_enc, eyes;
+  if (strcmp(name, "tongue") == 0) return *enc = tongue_enc, tongue;
+  Var *v = find_cow_var(name);
+  if (!v) return NULL;
+  *enc = v->enc;
+  return v->val;
 }
 
 /* Whether Perl reads what follows an unbraced $name as an element or a package variable. */
@@ -464,23 +506,132 @@ static int at_interpolates(char c) {
   return is_ident(c) || (c != '\0' && strchr(":'{$+-", c) != NULL);
 }
 
+/* Append a character that an escape names, as UTF-8. */
+static void push_char(Buf *out, Enc *enc, unsigned long cp, int lineno) {
+  // A NUL would end the string here; a surrogate or a value past Unicode is no character.
+  if (cp == 0 || (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF)
+    cow_error(lineno, "unsupported escape in cowfile");
+  if (cp < 0x80) {
+    buf_push(out, (char)cp);
+    return;
+  }
+  if (cp <= 0xFF) {
+    if (!enc->latin1_line) enc->latin1_line = lineno;
+  } else {
+    enc->wide = 1;
+  }
+  char u[4];
+  size_t len;
+  if (cp < 0x800) {
+    u[0] = (char)(0xC0 | (cp >> 6));
+    len = 2;
+  } else if (cp < 0x10000) {
+    u[0] = (char)(0xE0 | (cp >> 12));
+    u[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    len = 3;
+  } else {
+    u[0] = (char)(0xF0 | (cp >> 18));
+    u[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    u[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    len = 4;
+  }
+  u[len - 1] = (char)(0x80 | (cp & 0x3F));
+  buf_append(out, u, len);
+}
+
+/* Digits of a base up to max of them; returns how many it read, 0 if an overflow. */
+static size_t read_digits(const char *s, size_t n, int base, size_t max, unsigned long *value) {
+  size_t i = 0;
+  *value = 0;
+  while (i < n && i < max) {
+    int d = -1;
+    char c = s[i];
+    if (c >= '0' && c <= '9') d = c - '0';
+    else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+    else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+    if (d < 0 || d >= base) break;
+    *value = *value * (unsigned long)base + (unsigned long)d;
+    if (*value > 0x10FFFF) return 0;
+    i++;
+  }
+  return i;
+}
+
+/* A braced number such as {263A}; returns its length, 0 if it is not one. */
+static size_t read_braced(const char *s, size_t n, int base, unsigned long *value) {
+  if (n < 2 || s[0] != '{') return 0;
+  size_t digits = read_digits(s + 1, n - 1, base, n - 1, value);
+  if (digits == 0 || digits + 1 >= n || s[digits + 1] != '}') return 0;
+  return digits + 2;
+}
+
+/* The escape after a backslash, as perlop lists them for a double-quoted string.
+ * Returns its length after the backslash.
+ */
+static size_t read_escape(Buf *out, Enc *enc, const char *s, size_t n, int lineno) {
+  unsigned long cp;
+  size_t len;
+  char e = s[0];
+  switch (e) {
+  case 't': buf_push(out, '\t'); return 1;
+  case 'n': buf_push(out, '\n'); return 1;
+  case 'r': buf_push(out, '\r'); return 1;
+  case 'f': buf_push(out, '\f'); return 1;
+  case 'b': buf_push(out, '\b'); return 1;
+  case 'a': buf_push(out, '\a'); return 1;
+  case 'e': buf_push(out, '\x1b'); return 1;
+  case 'c':
+    if (n < 2) break;
+    if (s[1] == '?') {
+      buf_push(out, 0x7F);
+      return 2;
+    }
+    char x = (s[1] >= 'a' && s[1] <= 'z') ? (char)(s[1] - 'a' + 'A') : s[1];
+    if (x <= '@' || x > '_') break; // \c@ is a NUL
+    buf_push(out, (char)(x ^ 0x40));
+    return 2;
+  case 'x':
+    if ((len = read_braced(s + 1, n - 1, 16, &cp))) {
+      push_char(out, enc, cp, lineno);
+      return len + 1;
+    }
+    if (n > 1 && s[1] == '{') break;
+    len = read_digits(s + 1, n - 1, 16, 2, &cp);
+    push_char(out, enc, cp, lineno);
+    return len + 1;
+  case 'N':
+    if (n < 4 || s[1] != '{' || s[2] != 'U' || s[3] != '+') break;
+    len = read_digits(s + 4, n - 4, 16, n - 4, &cp);
+    if (len == 0 || 4 + len >= n || s[4 + len] != '}') break;
+    push_char(out, enc, cp, lineno);
+    return len + 5;
+  case 'o':
+    if (!(len = read_braced(s + 1, n - 1, 8, &cp))) break;
+    push_char(out, enc, cp, lineno);
+    return len + 1;
+  case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7':
+    len = read_digits(s, n, 8, 3, &cp);
+    push_char(out, enc, cp, lineno);
+    return len;
+  case 'u': case 'l': case 'U': case 'L': case 'Q': case 'E': case 'F':
+    break; // these change the case of what follows
+  default:
+    // Any other character stands for itself, a letter as much as a newline.
+    if ((unsigned char)e >= 0x80 && !enc->byte_line) enc->byte_line = lineno;
+    buf_push(out, e);
+    return 1;
+  }
+  cow_error(lineno, "unsupported escape in cowfile");
+  return 0;
+}
+
 /* Interpolate as Perl does a double-quoted string, refusing whatever the grammar leaves out. */
-static void interpolate(Buf *out, const char *line, size_t n, int lineno) {
+static void interpolate(Buf *out, Enc *enc, const char *line, size_t n, int lineno) {
   for (size_t i = 0; i < n;) {
     char c = line[i];
     if (c == '\\') {
-      if (i + 1 >= n || line[i + 1] == '\n')
-        cow_error(lineno, "unsupported backslash at end of line");
-      char e = line[i + 1];
-      if (e == '\\' || e == '$' || e == '@' || e == '"') {
-        buf_push(out, e);
-        i += 2;
-      } else if (e == 'e') {
-        buf_push(out, '\x1b'); // Perl "\e": clawd.cow's ANSI colors
-        i += 2;
-      } else {
-        cow_error(lineno, "unsupported escape in cowfile");
-      }
+      if (i + 1 >= n) cow_error(lineno, "unsupported backslash at end of file");
+      i += 1 + read_escape(out, enc, line + i + 1, n - i - 1, lineno);
     } else if (c == '$') {
       const char *p = line + i + 1;
       char *name = NULL;
@@ -495,14 +646,17 @@ static void interpolate(Buf *out, const char *line, size_t n, int lineno) {
         if (!name) cow_error(lineno, "unescaped $ in cowfile");
         if (subscript_follows(p)) cow_error(lineno, "unsupported subscript in cowfile");
       }
-      const char *val = var_value(name);
+      Enc val_enc;
+      const char *val = var_value(name, &val_enc);
       if (!val) cow_error(lineno, "unknown variable in cowfile");
       buf_append(out, val, strlen(val));
+      enc_merge(enc, &val_enc);
       free(name);
       i = (size_t)(p - line);
     } else if (c == '@' && i + 1 < n && at_interpolates(line[i + 1])) {
       cow_error(lineno, "unescaped @ in cowfile");
     } else {
+      if ((unsigned char)c >= 0x80 && !enc->byte_line) enc->byte_line = lineno;
       buf_push(out, c);
       i++;
     }
@@ -510,7 +664,7 @@ static void interpolate(Buf *out, const char *line, size_t n, int lineno) {
 }
 
 /* A double-quoted literal on one line, interpolated; NULL if none starts at *p. */
-static char *match_string(const char **p, int lineno) {
+static char *match_string(const char **p, Enc *enc, int lineno) {
   if (**p != '"') return NULL;
   const char *start = *p + 1, *end = start;
   while (*end != '\0' && *end != '\n' && *end != '"')
@@ -518,20 +672,22 @@ static char *match_string(const char **p, int lineno) {
   if (*end != '"') return NULL;
   Buf b = {0};
   buf_append(&b, "", 0);
-  interpolate(&b, start, (size_t)(end - start), lineno);
+  *enc = (Enc){0};
+  interpolate(&b, enc, start, (size_t)(end - start), lineno);
   *p = end + 1;
   return b.p;
 }
 
 /* The rest of `$<name> .= ...`: ($<var> x 2); or a literal. */
 static int parse_append(const char *name, const char *r, int lineno) {
-  const char *old = var_value(name);
+  Enc enc, more;
+  const char *old = var_value(name, &enc);
   if (!old) return 0;
   Buf b = {0};
   buf_append(&b, old, strlen(old));
   if (match_lit(&r, "($")) {
     char *var = match_ident(&r);
-    const char *value = var ? var_value(var) : NULL;
+    const char *value = var ? var_value(var, &more) : NULL;
     free(var);
     r = skip_ws(r);
     if (!value || !match_lit(&r, "x")) goto refuse;
@@ -540,13 +696,14 @@ static int parse_append(const char *name, const char *r, int lineno) {
     buf_append(&b, value, strlen(value));
     buf_append(&b, value, strlen(value));
   } else {
-    char *lit = match_string(&r, lineno);
+    char *lit = match_string(&r, &more, lineno);
     if (!lit) goto refuse;
     buf_append(&b, lit, strlen(lit));
     free(lit);
     if (!match_lit(&r, ";") || !end_of_stmt(r)) goto refuse;
   }
-  set_var(name, b.p);
+  enc_merge(&enc, &more);
+  set_var(name, b.p, enc);
   return 1;
 refuse:
   free(b.p);
@@ -555,14 +712,15 @@ refuse:
 
 /* The rest of `$<name> = ...`: chop($eyes); substr($eyes, <n>, 1); or a literal,
  * which for $eyes may carry `unless ($eyes)` or `if ($eyes eq "<literal>")`.
+ * chop, substr and eq count codepoints and compare bytes, which holds for plain text only.
  */
 static int parse_assign(const char *name, const char *r, int lineno) {
   int to_eyes = strcmp(name, "eyes") == 0;
-  if (!to_eyes && match_lit(&r, "chop($eyes);") && end_of_stmt(r)) {
-    set_var(name, chop_unit(eyes));
+  if (!to_eyes && enc_plain(&eyes_enc) && match_lit(&r, "chop($eyes);") && end_of_stmt(r)) {
+    set_var(name, chop_unit(eyes), eyes_enc);
     return 1;
   }
-  if (!to_eyes && match_lit(&r, "substr($eyes,")) {
+  if (!to_eyes && enc_plain(&eyes_enc) && match_lit(&r, "substr($eyes,")) {
     r = skip_ws(r);
     size_t at = 0, digits = 0;
     while (*r >= '0' && *r <= '9') {
@@ -575,10 +733,11 @@ static int parse_assign(const char *name, const char *r, int lineno) {
     if (!match_lit(&r, "1")) return 0;
     r = skip_ws(r);
     if (!match_lit(&r, ");") || !end_of_stmt(r)) return 0;
-    set_var(name, u8_unit_at(eyes, at));
+    set_var(name, u8_unit_at(eyes, at), eyes_enc);
     return 1;
   }
-  char *lit = match_string(&r, lineno);
+  Enc enc;
+  char *lit = match_string(&r, &enc, lineno);
   if (!lit) return 0;
   r = skip_ws(r);
   int take = 1;
@@ -592,16 +751,19 @@ static int parse_assign(const char *name, const char *r, int lineno) {
     r = skip_ws(r);
     if (!match_lit(&r, "eq")) goto refuse;
     r = skip_ws(r);
-    char *want = match_string(&r, lineno);
+    Enc want_enc;
+    char *want = match_string(&r, &want_enc, lineno);
     if (!want) goto refuse;
+    int plain = enc_plain(&eyes_enc) && enc_plain(&want_enc);
     take = strcmp(eyes, want) == 0;
     free(want);
+    if (!plain) goto refuse;
     r = skip_ws(r);
     if (!match_lit(&r, ")")) goto refuse;
   }
   if (!match_lit(&r, ";") || !end_of_stmt(r)) goto refuse;
   if (take) {
-    set_var(name, lit);
+    set_var(name, lit, enc);
   } else {
     free(lit);
   }
@@ -634,6 +796,7 @@ static int parse_preamble_stmt(const char *line, int lineno) {
 /* Parse a cowfile's bytes into the cow text. */
 static char *parse_cow(const char *data, size_t n) {
   Buf out = {0};
+  Enc enc = {0};
   char *term = NULL;
   size_t term_len = 0;
   enum { PREAMBLE, BODY, AFTER } state = PREAMBLE;
@@ -652,7 +815,7 @@ static char *parse_cow(const char *data, size_t n) {
       if (line_len == term_len && strncmp(line, term, term_len) == 0) {
         state = AFTER;
       } else {
-        interpolate(&out, line, full_len, lineno);
+        interpolate(&out, &enc, line, full_len, lineno);
       }
     } else {
       const char *p = skip_ws(line);
@@ -690,6 +853,7 @@ static char *parse_cow(const char *data, size_t n) {
   }
   if (state == PREAMBLE) cow_error(lineno, "no $the_cow heredoc found");
   if (state == BODY) cow_error(lineno, "unterminated heredoc");
+  enc_check(&enc);
   free(term);
   if (!out.p) buf_append(&out, "", 0);
   return out.p;
