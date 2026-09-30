@@ -72,6 +72,8 @@ The following behaviors of the reference are bugs with no value to preserve and 
 - An ANSI escape sequence counts as no columns, and an open colour carries across a wrapped line.
   The reference counts those bytes as text, so the balloon widens by the length of the sequence;
   the rest of the message also loses its colour at the first break.
+- A cow with a character above U+00FF prints with no warning.
+  The reference also prints `Wide character in print` on stderr.
 
 ### Outside the specification
 
@@ -157,7 +159,7 @@ Inside the heredoc body:
 
 - `$thoughts`, `$eyes`, `$tongue`, and any variable from the assignments above, interpolate.
   The `${name}` form works as well.
-- The escapes are `\\`, `\$`, `\@`, `\"` and `\e`, the ESC that `clawd.cow` colors with.
+- The escapes are those of a Perl double-quoted string, listed below.
 - An unknown `$name` is refused rather than interpolated.
   So is a `$` that no name follows: Perl reads `$?` or `$/` as a special variable,
   and skips spaces to find a name, so `$ /` means `$/` too.
@@ -165,3 +167,18 @@ Inside the heredoc body:
   Perl reads those as an element or a package variable.
 - `@` is refused before a letter, a digit, `_`, `:`, `'`, `{`, `$`, `+` or `-`,
   where Perl interpolates an array such as `@+`; before anything else it stays literal.
+
+| Escape | Stands for |
+| --- | --- |
+| `\t`, `\n`, `\r`, `\f`, `\b`, `\a`, `\e` | that control character |
+| `\cX` | the control character of `X`, as `\c[` for ESC |
+| `\xHH`, `\x{HHHH}`, `\N{U+HHHH}` | the character of that hexadecimal code |
+| `\101`, `\o{101}` | the character of that octal code, up to three digits without braces |
+| `\` and any other character | that character, so `\$`, `\@`, `\_`, and a newline after `\` |
+
+`\u`, `\l`, `\U`, `\L`, `\Q`, `\E` and `\F` are refused, since they change the case of what follows.
+So is `\N{name}`, and a code of 0, of a surrogate, or past U+10FFFF.
+
+Perl prints a cow with a character above U+00FF as UTF-8, and so does this implementation.
+Perl then encodes each raw byte above 0x7F once more, so such a byte in that cow is refused.
+Without that character, Perl prints `\x80` to `\xFF` as a lone byte, and the escape is refused.

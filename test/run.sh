@@ -144,8 +144,10 @@ run_ref() { # <think> <stdin-file> [args...]
   shift 2
   local script=$REF
   [ "$think" = 1 ] && script=$TMP/cowthink
-  COWPATH=$COWS perl "$script" "$@" <"$in" >"$TMP/ref.out" 2>"$TMP/ref.err"
+  COWPATH=$COWS perl "$script" "$@" <"$in" >"$TMP/ref.out" 2>"$TMP/ref.raw.err"
   echo $? >"$TMP/ref.code"
+  # Intended fix: Perl warns when it prints a cow as UTF-8, and we print no such warning.
+  grep -v '^Wide character in print at .* line [0-9]*\.$' "$TMP/ref.raw.err" >"$TMP/ref.err"
 }
 
 # WIDTH_ENV names the variables a width case wants handed to the binary, as NAME=VALUE words.
@@ -464,6 +466,33 @@ refused() { # <name> <body-line> <message>
   refused at-minus 'a@- b' 'unescaped @ in cowfile'
 }
 
+# The escapes of a Perl double-quoted string.
+# A character above U+00FF makes Perl print the cow as UTF-8, and \x80 to \xFF with it.
+# shellcheck disable=SC2016,SC1003
+{
+  body_case escape-controls 'a\tb\ac\bd\fe\rf\eg'
+  body_case escape-control-letters '\cA\cz\c?\c['
+  body_case escape-hex '\x41\x4g'
+  body_case escape-hex-braced '\x{41}\x{263A}'
+  body_case escape-unicode '\N{U+263A}'
+  body_case escape-octal '\101\7\0101\o{101}'
+  body_case escape-digits '\8\9'
+  body_case escape-others '\_\ \K\"\/\#'
+  body_case escape-byte '\é'
+  body_case escape-latin1-wide '\xA0\x{2580}'
+  body_case escape-newline 'a\'
+  refused escape-case 'a\ub' 'unsupported escape in cowfile'
+  refused escape-name '\N{LATIN SMALL LETTER A}' 'unsupported escape in cowfile'
+  refused escape-nul '\0' 'unsupported escape in cowfile'
+  refused escape-nul-braced '\x{0}' 'unsupported escape in cowfile'
+  refused escape-surrogate '\x{D800}' 'unsupported escape in cowfile'
+  refused escape-octal-unbraced '\o1' 'unsupported escape in cowfile'
+  refused escape-hex-junk '\x{zz}' 'unsupported escape in cowfile'
+  # Perl would print a lone byte for \xA0, or encode the raw é once more.
+  refused escape-latin1-alone '\xA0' 'unsupported escape in cowfile'
+  refused escape-byte-beside-wide 'é\x{263A}' 'unsupported byte beside a wide character'
+}
+
 section preamble
 # Each case is a whole cowfile, one argument per line.
 write_cow() { # <name> <line>...
@@ -499,7 +528,11 @@ cow_refused() { # <name> <line-number> <message> <line>...
     '$the_cow = <<EOC;' '$eyes$extra' 'EOC'
   cow_case heredoc-comment '$the_cow = <<EOC; # the cow' '$thoughts' 'EOC'
   cow_case heredoc-comment-no-semicolon '$the_cow = <<EOC # the cow' '$thoughts' 'EOC'
-  cow_refused escape 1 'unsupported escape in cowfile' '$x = "\t";' '$the_cow = <<EOC;' 'EOC'
+  cow_case assign-escapes-wide '$x = "\t\x41\xA0";' '$y = "\x{263A}";' \
+    '$the_cow = <<EOC;' '$x$y' 'EOC'
+  cow_refused escape 1 'unsupported escape in cowfile' '$x = "\Ua";' '$the_cow = <<EOC;' 'EOC'
+  cow_refused latin1-unused-wide 1 'unsupported escape in cowfile' \
+    '$x = "\xA0";' '$y = "\x{263A}";' '$the_cow = <<EOC;' '$x' 'EOC'
   cow_refused code 1 'unescaped @ in cowfile' '$x = "@{[ 1 ]}";' '$the_cow = <<EOC;' 'EOC'
   cow_refused code-in-idiom 1 'unescaped @ in cowfile' \
     '$eyes .= "@{[ 1 ]}";' '$the_cow = <<EOC;' 'EOC'
@@ -539,8 +572,9 @@ submodule_case paulkaefer-cowsay-files err
 submodule_case paulkaefer-cowsay-files kidcat
 submodule_case paulkaefer-cowsay-files tortoise
 submodule_case paulkaefer-cowsay-files USA
+# Escapes in the heredoc: \_ and a \ before a space.
+submodule_case paulkaefer-cowsay-files atat
 # Outside the grammar.
-submodule_refused paulkaefer-cowsay-files atat 9 'unsupported escape in cowfile'
 submodule_refused paulkaefer-cowsay-files cake 8 'unescaped @ in cowfile'
 submodule_refused paulkaefer-cowsay-files golden-eagle 8 'unescaped $ in cowfile'
 submodule_refused paulkaefer-cowsay-files chiyo-chichi 1 'unsupported cowfile construct'
@@ -556,16 +590,17 @@ submodule_case cowsay-org-cowsay mech-and-cow
 # Single quotes and `ne`, outside the grammar.
 submodule_refused cowsay-org-cowsay sus 4 'unsupported cowfile construct'
 
-# phmajerus-cowfiles: color and Unicode, outside the grammar for now.
-submodule_refused phmajerus-cowfiles alexkidd 7 'unsupported escape in cowfile'
+# phmajerus-cowfiles: color and Unicode, as \x1B, \x{...} and \xA0 beside them.
+submodule_case phmajerus-cowfiles alexkidd
 # CRLF line ends.
 submodule_refused phmajerus-cowfiles clippit 6 'unsupported cowfile construct'
 
 # mstill3-cowsay-files: drawn by hand, most under a comment header.
 submodule_case mstill3-cowsay-files aardvark
 submodule_case mstill3-cowsay-files bird-stork
+# A \ at the end of a heredoc line.
+submodule_case mstill3-cowsay-files chopper
 # Outside the grammar.
-submodule_refused mstill3-cowsay-files chopper 9 'unsupported backslash at end of line'
 submodule_refused mstill3-cowsay-files griffin 9 'unknown variable in cowfile'
 submodule_refused mstill3-cowsay-files motivational-whale 5 'unsupported heredoc terminator'
 submodule_refused mstill3-cowsay-files snail 12 'unescaped @ in cowfile'

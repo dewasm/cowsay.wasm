@@ -41,7 +41,7 @@ $ make update-ucd    # the only networked step: refresh ucd/ at UNICODE_VERSION
 ## Behavior
 
 For ASCII input, stdout, stderr and the exit code are identical to cowsay 3.03 under a modern Perl.
-The only exceptions are five intended fixes for bugs of the original.
+The only exceptions are intended fixes for bugs of the original.
 Non-ASCII input, meanwhile, is measured in terminal columns rather than bytes.
 Grapheme clusters stay whole, East Asian and emoji characters take two columns,
 and an ANSI colour survives a wrapped line.
