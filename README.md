@@ -23,7 +23,7 @@ $ echo moo | wasmtime run cowsay.wasm
 
 ## Building
 
-The tests read a third-party cowfile collection from a submodule.
+The tests read third-party cowfiles from submodules.
 Run `git submodule update --init` once after cloning.
 
 ```console
@@ -33,7 +33,7 @@ $ make check         # the differential test suite in both modes
 $ make check-native  # only the host binary, against the vendored reference
 $ make check-wasm    # only cowsay.wasm, under wasmtime
 $ make check-size    # cowsay.wasm is under the 100 kB stated above
-$ make check-cowsay-files # every cowfile of a third-party collection, native only
+$ make check-submodules # every cowfile of the test submodules
 $ make lint          # shellcheck the scripts, and compile-check the Perl generator
 $ make update-ucd    # the only networked step: refresh ucd/ at UNICODE_VERSION
 ```
