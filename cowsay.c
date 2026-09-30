@@ -1052,6 +1052,33 @@ static char *read_file(const char *path, size_t *out_len) {
   return b.p;
 }
 
+/* The built-in cowfiles joined, expanded from cows_lzss the first time one is needed.
+ * cows_lzss is LZSS as tools/embed-cows.pl writes it: a flag byte leads each group of eight items,
+ * low bit first. A clear bit is one literal byte.
+ * A set bit is a two-byte big-endian reference: (distance - 1) << 4 | (length - 3).
+ */
+static const char *cows_text(void) {
+  static char text[COWS_TEXT_LEN];
+  static int expanded;
+  if (expanded) return text;
+  const unsigned char *in = cows_lzss;
+  size_t n = 0;
+  while (n < COWS_TEXT_LEN) {
+    unsigned flags = *in++;
+    for (int bit = 0; bit < 8 && n < COWS_TEXT_LEN; bit++, flags >>= 1) {
+      if (flags & 1) {
+        unsigned ref = (unsigned)in[0] << 8 | in[1];
+        in += 2;
+        for (unsigned len = (ref & 15) + 3; len; len--, n++) text[n] = text[n - (ref >> 4) - 1];
+      } else {
+        text[n++] = (char)*in++;
+      }
+    }
+  }
+  expanded = 1;
+  return text;
+}
+
 static const struct embedded_cow *find_embedded(const char *name) {
   for (size_t i = 0; i < sizeof embedded_cows / sizeof embedded_cows[0]; i++)
     if (strcmp(embedded_cows[i].name, name) == 0) return &embedded_cows[i];
@@ -1153,7 +1180,7 @@ static char *cow_in_dir(const char *dir, const char *name) {
     }
     if (!e) return NULL;
     cow_source = e->name;
-    return parse_cow((const char *)e->data, e->len);
+    return parse_cow(cows_text() + e->offset, e->len);
   }
   for (int suffix = 0; suffix < 2; suffix++) {
     Buf path = {0};

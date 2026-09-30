@@ -24,8 +24,8 @@ UCD_FILES = $(UCD)/EastAsianWidth.txt $(UCD)/DerivedCoreProperties.txt \
 
 all: cowsay.wasm
 
-cows_embedded.h: tools/embed-cows.sh $(COWS)
-	sh tools/embed-cows.sh $(COWS) > $@
+cows_embedded.h: tools/embed-cows.pl $(COWS)
+	perl tools/embed-cows.pl $(COWS) > $@
 
 cowsay.wasm: $(WASM_SRC) cows_embedded.h unicode_tables.h width.h
 	$(WASI_SDK_PATH)/bin/clang --target=wasm32-wasip1 $(WASM_CFLAGS) -o $@ $(WASM_SRC)
@@ -76,9 +76,10 @@ update-ucd:
 	sh tools/fetch-ucd.sh $(UNICODE_VERSION) $(UCD)
 
 lint:
-	shellcheck test/run.sh tools/embed-cows.sh
+	shellcheck test/run.sh
 	perl -c test/gen-fuzz.pl
 	perl -c tools/ansi-to-svg.pl
+	perl -c tools/embed-cows.pl
 	perl -c tools/gen-unicode-tables.pl
 	shellcheck tools/fetch-ucd.sh
 
