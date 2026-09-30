@@ -25,7 +25,7 @@ The width cases hand in what they need one at a time.
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
 | `../ucd/` | the UCD files as published; the tables and the break test are read from there |
-| `cowsay-files/` | the submodule [paulkaefer/cowsay-files](https://github.com/paulkaefer/cowsay-files), at a fixed commit |
+| `submodules/cowsay-files/` | the submodule [paulkaefer/cowsay-files](https://github.com/paulkaefer/cowsay-files), at a fixed commit |
 
 The collection is a submodule because it carries no license that would let us copy its files.
 `make check` runs 13 of its cowfiles, one for each shape the collection writes.

@@ -12,7 +12,7 @@
 #
 # COWSAY_TEST_MODE=wasm runs cowsay.wasm under wasmtime instead of cowsay-native.
 #
-# `run.sh --all-cowsay-files` runs every cowfile of the test/cowsay-files submodule instead.
+# `run.sh --all-cowsay-files` runs every cowfile of test/submodules/cowsay-files instead.
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -23,9 +23,9 @@ unset LANG LC_ALL LC_CTYPE COWSAY_AMBIGUOUS_WIDTH
 ROOT=$PWD
 COWS=$ROOT/cows
 REF=$ROOT/test/reference/cowsay
-COWSAY_FILES=$ROOT/test/cowsay-files/cows
+COWSAY_FILES=$ROOT/test/submodules/cowsay-files/cows
 if [ ! -d "$COWSAY_FILES" ]; then
-  echo "test/cowsay-files is empty: run git submodule update --init" >&2
+  echo "test/submodules/cowsay-files is empty: run git submodule update --init" >&2
   exit 1
 fi
 TMP=$(mktemp -d)
@@ -461,7 +461,8 @@ cow_refused() { # <name> <line-number> <message> <line>...
   cow_case assign-eyes '$eyes = "^^"; # always' '$the_cow = <<EOC;' '($eyes)' 'EOC'
   cow_case append '$x = "a";' '$x .= " $tongue!";' '$the_cow = <<EOC;' '$x' 'EOC'
   cow_case append-tongue '$tongue .= "!";' '$the_cow = <<EOC;' '$tongue' 'EOC'
-  cow_case idiom-comment '$extra = chop($eyes);  # the third eye' '$the_cow = <<EOC;' '$eyes$extra' 'EOC'
+  cow_case idiom-comment '$extra = chop($eyes);  # the third eye' \
+    '$the_cow = <<EOC;' '$eyes$extra' 'EOC'
   cow_case heredoc-comment '$the_cow = <<EOC; # the cow' '$thoughts' 'EOC'
   cow_case heredoc-comment-no-semicolon '$the_cow = <<EOC # the cow' '$thoughts' 'EOC'
   cow_refused escape 1 'unsupported escape in cowfile' '$x = "\t";' '$the_cow = <<EOC;' 'EOC'
@@ -474,12 +475,13 @@ cow_refused() { # <name> <line-number> <message> <line>...
   cow_refused unknown 1 'unknown variable in cowfile' '$x = "$y";' '$the_cow = <<EOC;' 'EOC'
   cow_refused two-lines 1 'unsupported cowfile construct' '$x = "a' 'b";' '$the_cow = <<EOC;' 'EOC'
   cow_refused no-semicolon 1 'unsupported cowfile construct' '$x = "a"' '$the_cow = <<EOC;' 'EOC'
-  cow_refused append-unknown 1 'unsupported cowfile construct' '$y .= "a";' '$the_cow = <<EOC;' 'EOC'
+  cow_refused append-unknown 1 'unsupported cowfile construct' \
+    '$y .= "a";' '$the_cow = <<EOC;' 'EOC'
   cow_refused single-quoted 1 'unsupported cowfile construct' "\$x = 'a';" '$the_cow = <<EOC;' 'EOC'
 }
 
 section cowsay-files
-# Cowfiles of the test/cowsay-files submodule, one for each shape the collection writes.
+# Cowfiles of test/submodules/cowsay-files, one for each shape the collection writes.
 # `make check-cowsay-files` runs all of them.
 collection_case() { # <name>
   COWS=$COWSAY_FILES t_pathonly "cowsay-files-$1" '' -f "$1" moo
