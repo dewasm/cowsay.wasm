@@ -1,7 +1,7 @@
 # Specification and test suite
 
-The behavior is defined against [cowsay 3.03](https://github.com/tnalpgge/rank-amateur-cowsay).
-Its script is vendored here as `reference/cowsay`, where it runs under the host Perl.
+The behavior is defined against [cowsay 3.8.4](https://github.com/cowsay-org/cowsay), the reference.
+Its script is `bin/cowsay` of the submodule `submodules/cowsay-org-cowsay`, run under the host Perl.
 This file states the specification, while `run.sh` enforces it.
 
 ## Test suite
@@ -12,7 +12,7 @@ Run it with `make check`, or one mode at a time with `make check-native` and `ma
 Each case compares stdout, stderr and the exit code against the reference.
 It runs our binary twice: with `COWPATH` set to `cows/`, then without it.
 The first run reads cowfiles from the filesystem, and the second uses the embedded ones.
-A case whose output names the cowfile directory, such as `-l`, skips the embedded run.
+A case that reads a cowfile outside `cows/` skips the embedded run.
 
 The suite clears `LANG`, `LC_ALL`, `LC_CTYPE` and `COWSAY_AMBIGUOUS_WIDTH`.
 A wasm run sees no environment, so a native run must not read the machine's.
@@ -30,13 +30,12 @@ The suite reads these files, with paths relative to `test/`:
 
 | Path | What it holds |
 | --- | --- |
-| `reference/cowsay` | cowsay 3.03 unmodified, the reference for every differential case |
 | `fixed/` | snapshots of the intended fixes, which differ from the reference |
 | `width/` | snapshots of non-ASCII width, which the byte-based reference cannot define |
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
 | `../ucd/` | the UCD files as published, read for the tables and the break test |
-| `submodules/` | repositories of cowfiles, each a submodule at a fixed commit |
+| `submodules/` | repositories of cowfiles, each a submodule at a fixed commit, the reference among them |
 
 ## Output specification
 
@@ -46,12 +45,17 @@ The only exceptions are the intended fixes below, which snapshot files under `fi
 
 The remaining behaviors of the original are part of the specification too, reproduced intentionally:
 
-- `-l` wraps the cowfile list at 76 columns, because the original lists before applying `-W`.
+- `-l` prints the cowfile names alone, one per line, when stdout is no terminal.
+  On a terminal it lists each cowpath directory that holds a cowfile, and skips the others.
+  That list wraps at 76 columns, since the reference lists before it applies `-W`.
 - A missing cowfile exits with status 2, the `ENOENT` that Perl's `die` picks up from the file test.
+  A path that contains `/` is no exception.
+- `-n` with a message on the command line prints the help and exits with status 1.
 - Face flags override each other in a fixed order (`-y -b` shows `==`), and all override `-e`/`-T`.
 - An unknown option warns and parsing continues.
 
-Exit codes: 0 on success, 1 for a rejected cowfile, 2 for a missing cowfile, 64 for a usage error.
+Exit codes: 0 on success and for `-h`, 1 for a rejected cowfile and for `-n` with a message,
+2 for a missing cowfile.
 All of them are representable under WASI preview 1's [0..126) restriction.
 
 ### Intended fixes
@@ -66,12 +70,8 @@ The following behaviors of the reference are bugs with no value to preserve and 
   so `cowsay 0` and `cowsay ""` wait on stdin.
 - A cowfile's `($eyes)` is false only for an empty `$eyes`.
   Perl takes `"0"` as false too, so the reference shows the default `..` for `cowsay -e 0 -f small`.
-- `-f` with a missing path containing `/` reports `Could not find ... cowfile!` and exits 2.
-  The reference instead runs `do $full` unchecked, prints the balloon with no cow, and exits 0.
-- A usage error exits with `EX_USAGE` (64) rather than the reference's 255;
-  WASI preview 1 cannot represent a status that high.
-  The usage text also drops a stray trailing space, carried over from the reference's heredoc,
-  and names this build beside the cowsay it implements: `version 3.03 (cowsay.wasm 0.2.0)`.
+- The help names this build beside the cowsay it implements: `version 3.8.4 (cowsay.wasm 0.2.0)`.
+  It also leaves out `-r` and `-C`, which this build does not have.
 - An ANSI escape sequence counts as no columns, and an open colour carries across a wrapped line.
   The reference counts those bytes as text, so the balloon widens by the length of the sequence;
   the rest of the message also loses its colour at the first break.
@@ -81,6 +81,8 @@ The following behaviors of the reference are bugs with no value to preserve and 
 ### Outside the specification
 
 - `--help` and `--version`, whose Getopt::Std output embeds the host Perl version.
+- `-r` and `-C`, which this build does not have.
+- A subdirectory of a cowpath directory, whose cowfiles the reference names as `dir/name`.
 - Malformed cowfiles: Perl reports its own error, and so does this implementation.
 - `-W` values that are not a decimal integer with optional sign; the leading integer prefix is used.
 

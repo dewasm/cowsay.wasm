@@ -1,19 +1,20 @@
 # cowsay.wasm
 
-cowsay 3.03 (c) 1999-2000 Tony Monroe, reimplemented in C for `wasm32-wasip1`.
+[cowsay 3.8.4](https://github.com/cowsay-org/cowsay), reimplemented in C for `wasm32-wasip1`.
+cowsay is (c) 1999-2000 Tony Monroe, and cowsay-org maintains it since.
 
 The popular wasm build of cowsay is [a Rust clone](https://github.com/wapm-packages/cowsay).
 It weighs 700+ kB for a program that prints a cow.
 That cow also has [broken legs](https://x.com/make_now_just/status/2100555120329347437).
 
 This one stays under 100 kB, and its cow stands straight.
-It prints exactly what [the original](https://github.com/tnalpgge/rank-amateur-cowsay) prints.
+It prints exactly what cowsay 3.8.4 prints.
 
 ```console
 $ echo moo | wasmtime run cowsay.wasm
- _____ 
+ _____
 < moo >
- ----- 
+ -----
         \   ^__^
          \  (oo)\_______
             (__)\       )\/\
@@ -30,7 +31,7 @@ Run `git submodule update --init` once after cloning.
 $ make               # cowsay.wasm, needs WASI_SDK_PATH and optionally wasm-opt
 $ make cowsay-native # host binary, same behavior, used by the tests
 $ make check         # the differential test suite in both modes
-$ make check-native  # only the host binary, against the vendored reference
+$ make check-native  # only the host binary, against the reference
 $ make check-wasm    # only cowsay.wasm, under wasmtime
 $ make check-size    # cowsay.wasm is under the 100 kB stated above
 $ make check-third-party-cows # every third-party cowfile of test/submodules
@@ -40,7 +41,7 @@ $ make update-ucd    # the only networked step: refresh ucd/ at UNICODE_VERSION
 
 ## Behavior
 
-For ASCII input, stdout, stderr and the exit code are identical to cowsay 3.03 under a modern Perl.
+For ASCII input, stdout, stderr and the exit code are identical to cowsay 3.8.4 under a modern Perl.
 The only exceptions are intended fixes for bugs of the original.
 Non-ASCII input, meanwhile, is measured in terminal columns rather than bytes.
 Grapheme clusters stay whole, East Asian and emoji characters take two columns,
@@ -49,7 +50,7 @@ For the full specification, and the suite that enforces it, see [test/README.md]
 
 ## Cowfiles
 
-The binary embeds the 47 `.cow` files of cowsay 3.03, plus our own `clawd`, a Claude Code crab.
+The binary embeds the `.cow` files of cowsay 3.8.4, plus our own `clawd`, a Claude Code crab.
 That way `-f name` and `-l` work without any filesystem access at all.
 
 Unlike the plain-text cowfiles of the original, `clawd` is drawn with ANSI truecolor escapes.
@@ -81,5 +82,5 @@ $ cp cowsay.wasm cowthink.wasm && echo moo | wasmtime run cowthink.wasm
 
 ## License
 
-GPL-3.0-only, the license of cowsay 3.03.
-The cowfiles under `cows/` and the script under `test/reference/` are taken from it unmodified.
+GPL-3.0-only, the license of cowsay.
+The cowfiles under `cows/`, other than `clawd`, are taken from cowsay 3.8.4 unmodified.

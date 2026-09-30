@@ -48,7 +48,7 @@ check-native: cowsay-native
 check-wasm: cowsay.wasm
 	@COWSAY_TEST_MODE=wasm bash test/run.sh
 
-# Every cowfile of the submodules under test/submodules, outside `make check`.
+# Every cowfile of the third-party collections under test/submodules, outside `make check`.
 # It runs natively unless COWSAY_TEST_MODE=wasm.
 check-third-party-cows: $(if $(filter wasm,$(COWSAY_TEST_MODE)),cowsay.wasm,cowsay-native)
 	@bash test/run.sh --third-party-cows

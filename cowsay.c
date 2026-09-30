@@ -1,5 +1,6 @@
 /*
- * cowsay.wasm: a C reimplementation of cowsay 3.03 (c) 1999-2000 Tony Monroe, for wasm32-wasip1.
+ * cowsay.wasm: a C reimplementation of cowsay 3.8.4, for wasm32-wasip1.
+ * cowsay is (c) 1999-2000 Tony Monroe, and cowsay-org maintains it since.
  *
  * The output specification and the intended fixes are documented in test/README.md.
  *
@@ -11,12 +12,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "cows_embedded.h"
 #include "width.h"
 
 /* The cowsay this reimplements, and the version of this reimplementation; -h names both. */
-#define COWSAY_VERSION "3.03"
+#define COWSAY_VERSION "3.8.4"
 #define COWSAY_WASM_VERSION "0.2.0"
 
 /* ---------- growable byte buffer and string list ---------- */
@@ -254,6 +256,60 @@ static char *expand_line(const char *s) {
   return out.p;
 }
 
+/* ---------- help ---------- */
+
+static const char *progname = "cowsay";
+
+#define VERSION_LINE "version " COWSAY_VERSION " (cowsay.wasm " COWSAY_WASM_VERSION ")"
+
+/* Intended fix: the version line also names this build, beside the cowsay it implements.
+ * Neither -r nor -C is described, since this build has neither yet.
+ */
+static void display_help(int status) {
+  printf("%s " VERSION_LINE "\n"
+         "\n"
+         "Usage:\n"
+         "\n"
+         "    %s [-bdgpstwy] [-f <cowfile>] [-e <eyes>] [-T <tongue>]\n"
+         "        [-W <wrapcolumn>] [-n]\n"
+         "        <message>\n"
+         "\n"
+         "    %s -l              # List defined cows\n"
+         "    %s [-h | --help]   # Display this help screen\n"
+         "\n"
+         "Options:\n"
+         "\n"
+         "    -b, -d, -g, -s, -t, -w, and -y activate Borg, dead, greedy, sleepy, tired, "
+         "wired, and\n"
+         "        young appearance modes, respectively.\n"
+         "\n"
+         "    -f <cowfile> selects an alternate cow picture. "
+         "<cowfile> may be either the name of a\n"
+         "        cow defined in a cowdir on the cowpath "
+         "(without the '.cow' file extension), or the\n"
+         "        path to a cowfile (with the '.cow' file extension). `%s -l` will list the\n"
+         "        names of available cows.\n"
+         "\n"
+         "    -e <eyes> defines a custom eye appearance. <eyes> should be a two-character string.\n"
+         "        It is up to you whether they actually look like eyes.\n"
+         "\n"
+         "    -T <tongue> defines a custom tongue appearance.\n"
+         "\n"
+         "    -n activates word wrapping, to support messages with arbitrary whitespace. "
+         "Must be the\n"
+         "        last option given before <message> starts.\n"
+         "\n"
+         "    -W <wrapcolumn> controls where line wrapping occurs. Default is 40 columns.\n"
+         "\n",
+         progname, progname, progname, progname, progname);
+  exit(status);
+}
+
+static void display_version(void) {
+  printf("%s " VERSION_LINE "\n", progname);
+  exit(0);
+}
+
 /* ---------- option parsing: Getopt::Std getopts() port ---------- */
 
 static const char OPTSTRING[] = "bde:f:ghlLnNpstT:wW:y";
@@ -278,6 +334,9 @@ static int getopts(int argc, char **argv, Opts *o) {
       cluster = argv[ai++] + 1;
     }
     if (cluster[0] == '-' && cluster[1] == '\0') break; // "--"
+    // Getopt::Std with $STANDARD_HELP_VERSION; its output also names the Perl version.
+    if (strcmp(cluster, "-help") == 0) display_help(0);
+    if (strcmp(cluster, "-version") == 0) display_version();
     char c = cluster[0];
     const char *rest = cluster + 1;
     const char *hit = (c != ':') ? strchr(OPTSTRING, c) : NULL;
@@ -315,8 +374,6 @@ static int getopts(int argc, char **argv, Opts *o) {
         cluster = *rest ? rest : NULL;
       }
     } else {
-      // Getopt::Std also handles --help/--version, whose output embeds the host Perl version.
-      // They are outside the specification (test/README.md), so they fall through as unknown.
       fprintf(stderr, "Unknown option: %c\n", c);
       cluster = *rest ? rest : NULL;
     }
@@ -327,22 +384,10 @@ static int getopts(int argc, char **argv, Opts *o) {
 /* ---------- globals mirroring the Perl script ---------- */
 
 static const char *argv0 = "cowsay";
-static const char *progname = "cowsay";
 static char *eyes;
 static char *tongue;
 static const char *thoughts;
 
-static void display_usage(void) {
-  // Intended fix: the reference exits 255 (Perl die), which WASI preview 1 cannot represent.
-  // This exits with EX_USAGE, and drops the stray trailing space from its usage text.
-  fprintf(stderr,
-      "cow{say,think} version " COWSAY_VERSION " (cowsay.wasm " COWSAY_WASM_VERSION "),"
-      " (c) 1999 Tony Monroe\n"
-      "Usage: %s [-bdgpstwy] [-h] [-e eyes] [-f cowfile]\n"
-      "          [-l] [-n] [-T tongue] [-W wrapcolumn] [message]\n",
-      progname);
-  exit(64);
-}
 
 /* ---------- cowfile parsing ----------
  *
@@ -974,12 +1019,10 @@ static const struct embedded_cow *find_embedded(const char *name) {
 static char *get_cow(const char *f) {
   const char *cowpath = getenv("COWPATH");
   if (strchr(f, '/')) {
-    // Intended fix: the reference runs `do $full` unchecked: a missing path exits 0 with no cow.
-    // This reports it like any other missing cowfile.
     size_t n;
     char *data = read_file(f, &n);
     if (!data) {
-      fprintf(stderr, "%s: Could not find %s cowfile!\n", progname, f);
+      fprintf(stderr, "%s: Could not find cowfile for '%s'!\n", progname, f);
       exit(2);
     }
     cow_source = f;
@@ -1028,7 +1071,7 @@ static char *get_cow(const char *f) {
       return parse_cow((const char *)e->data, e->len);
     }
   }
-  fprintf(stderr, "%s: Could not find %s cowfile!\n", progname, f);
+  fprintf(stderr, "%s: Could not find cowfile for '%s'!\n", progname, f);
   exit(2); // Perl die picks up $! = ENOENT from the failed file tests
 }
 
@@ -1054,43 +1097,80 @@ static void print_name_list(List *names) {
   free(joined.p);
 }
 
-static void list_cowfiles(void) {
+/* The cowfile names directly in dir, or NULL if it cannot be read. */
+static List *cows_in_dir(const char *dir) {
+  DIR *dp = opendir(dir);
+  if (!dp) return NULL;
+  List *names = xrealloc(NULL, sizeof *names);
+  *names = (List){0};
+  struct dirent *de;
+  while ((de = readdir(dp)) != NULL) {
+    size_t len = strlen(de->d_name);
+    if (len > 4 && strcmp(de->d_name + len - 4, ".cow") == 0)
+      list_push(names, xstrndup(de->d_name, len - 4));
+  }
+  closedir(dp);
+  return names;
+}
+
+/* Each cowpath directory with its cowfile names; the built-in cowfiles stand for one. */
+static void cowpath_listing(List *dirs, List **names) {
   const char *cowpath = getenv("COWPATH");
-  if (cowpath && *cowpath) {
-    const char *p = cowpath;
-    while (1) {
-      const char *colon = strchr(p, ':');
-      size_t dlen = colon ? (size_t)(colon - p) : strlen(p);
-      char *dir = xstrndup(p, dlen);
-      printf("Cow files in %s:\n", dir);
-      DIR *dp = opendir(dir);
-      if (!dp) {
-        fprintf(stderr, "%s: Cannot open %s\n", argv0, dir);
-        exit(2);
-      }
-      List names = {0};
-      struct dirent *de;
-      while ((de = readdir(dp)) != NULL) {
-        size_t len = strlen(de->d_name);
-        if (len > 4 && strcmp(de->d_name + len - 4, ".cow") == 0)
-          list_push(&names, xstrndup(de->d_name, len - 4));
-      }
-      closedir(dp);
-      print_name_list(&names);
-      for (size_t i = 0; i < names.n; i++) free(names.v[i]);
-      free(names.v);
-      free(dir);
-      if (!colon) break;
-      p = colon + 1;
-    }
-  } else {
-    printf("Cow files in (embedded):\n");
-    List names = {0};
+  if (!cowpath || !*cowpath) {
+    List *builtin = xrealloc(NULL, sizeof *builtin);
+    *builtin = (List){0};
     for (size_t i = 0; i < sizeof embedded_cows / sizeof embedded_cows[0]; i++) {
       size_t len = strlen(embedded_cows[i].name);
-      list_push(&names, xstrndup(embedded_cows[i].name, len - 4));
+      list_push(builtin, xstrndup(embedded_cows[i].name, len - 4));
     }
-    print_name_list(&names);
+    list_push(dirs, xstrndup("(embedded)", 10));
+    names[0] = builtin;
+    return;
+  }
+  for (const char *p = cowpath;;) {
+    const char *colon = strchr(p, ':');
+    size_t dlen = colon ? (size_t)(colon - p) : strlen(p);
+    char *dir = xstrndup(p, dlen);
+    List *found = cows_in_dir(dir);
+    // A directory that cannot be read, or holds no cowfile, is left out.
+    if (found && found->n) {
+      names[dirs->n] = found;
+      list_push(dirs, dir);
+    } else {
+      free(dir);
+    }
+    if (!colon) break;
+    p = colon + 1;
+  }
+}
+
+/* A terminal gets the cowfiles under each directory; anything else gets their names alone. */
+static void list_cowfiles(void) {
+  const char *cowpath = getenv("COWPATH");
+  size_t max_dirs = 1;
+  for (const char *p = cowpath ? cowpath : ""; *p; p++) max_dirs += *p == ':';
+  List dirs = {0};
+  List **names = xrealloc(NULL, max_dirs * sizeof *names);
+  cowpath_listing(&dirs, names);
+  if (isatty(STDOUT_FILENO)) {
+    for (size_t i = 0; i < dirs.n; i++) {
+      if (i) fputs("\n", stdout);
+      printf("Cow files in %s:\n", dirs.v[i]);
+      print_name_list(names[i]);
+    }
+  } else {
+    List all = {0};
+    for (size_t i = 0; i < dirs.n; i++)
+      for (size_t k = 0; k < names[i]->n; k++) list_push(&all, names[i]->v[k]);
+    qsort(all.v, all.n, sizeof(char *), cmp_str);
+    Buf out = {0};
+    for (size_t k = 0; k < all.n; k++) {
+      if (k && strcmp(all.v[k], all.v[k - 1]) == 0) continue;
+      if (out.len) buf_push(&out, '\n');
+      buf_append(&out, all.v[k], strlen(all.v[k]));
+    }
+    buf_push(&out, '\n');
+    fputs(out.p, stdout);
   }
   exit(0);
 }
@@ -1120,15 +1200,12 @@ static void emit_balloon_line(Buf *b, const char *bl, const char *s, size_t padw
 
 static char *construct_balloon(char **lines, size_t n, int think) {
   wu_sgr_clear(&balloon_sgr);
-  long max = -1;
+  size_t max = 0;
   for (size_t i = 0; i < n; i++) {
-    long l = (long)wu_display_width(lines[i], strlen(lines[i]));
+    size_t l = wu_display_width(lines[i], strlen(lines[i]));
     if (l > max) max = l;
   }
-  // max stays -1 for an empty message;
-  // sprintf("%--1s", "") then pads to one column, and the border dashes span max + 2 = 1.
-  size_t padw = (max < 0) ? 1 : (size_t)max;
-  size_t max2 = (size_t)(max + 2);
+  size_t padw = max, max2 = max + 2;
   const char *b0, *b1, *b2, *b3, *b4, *b5;
   if (think) {
     thoughts = "o";
@@ -1143,7 +1220,7 @@ static char *construct_balloon(char **lines, size_t n, int think) {
   Buf b = {0};
   buf_push(&b, ' ');
   buf_repeat(&b, '_', max2);
-  buf_append(&b, " \n", 2);
+  buf_push(&b, '\n');
   emit_balloon_line(&b, b0, n ? lines[0] : "", padw, b1);
   if (n >= 2) {
     for (size_t i = 1; i + 1 < n; i++) emit_balloon_line(&b, b4, lines[i], padw, b5);
@@ -1151,7 +1228,7 @@ static char *construct_balloon(char **lines, size_t n, int think) {
   }
   buf_push(&b, ' ');
   buf_repeat(&b, '-', max2);
-  buf_append(&b, " \n", 2);
+  buf_push(&b, '\n');
   return b.p;
 }
 
@@ -1234,7 +1311,7 @@ int main(int argc, char **argv) {
   o.W = "40";
   int rest = getopts(argc, argv, &o);
 
-  if (o.h) display_usage();
+  if (o.h) display_help(0);
   if (o.l) list_cowfiles();
 
   eyes = cluster_prefix(o.e, 2);
@@ -1246,7 +1323,7 @@ int main(int argc, char **argv) {
   List raw = {0};
   int use_args = rest < argc;
   if (use_args) {
-    if (o.n) display_usage();
+    if (o.n) display_help(1); // -n reads stdin only
     Buf joined = {0};
     for (int i = rest; i < argc; i++) {
       if (i > rest) buf_push(&joined, ' ');
