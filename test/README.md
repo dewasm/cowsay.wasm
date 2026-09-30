@@ -7,40 +7,36 @@ This file states the specification, while `run.sh` enforces it.
 ## Test suite
 
 Run it with `make check`, or one mode at a time with `make check-native` and `make check-wasm`.
-`COWSAY_TEST_MODE=wasm` selects `cowsay.wasm` under wasmtime; the default runs `cowsay-native`.
+`COWSAY_TEST_MODE=wasm` selects `cowsay.wasm` under wasmtime; the default is `cowsay-native`.
 
-Each case compares all three channels against the reference.
-To do that it runs this implementation twice: with `COWPATH` pointing at `cows/`, then without it.
-Those two runs cover the real-filesystem lookup and the embedded cowfiles respectively.
+Each case compares stdout, stderr and the exit code against the reference.
+It runs our binary twice: with `COWPATH` set to `cows/`, then without it.
+The first run reads cowfiles from the filesystem, and the second uses the embedded ones.
 A case whose output names the cowfile directory, such as `-l`, skips the embedded run.
-The suite clears `LANG`, `LC_ALL`, `LC_CTYPE` and `COWSAY_AMBIGUOUS_WIDTH` first;
-a wasm run sees no environment, so a native run must not read the machine's.
-The width cases hand in what they need one at a time.
 
-The fuzz generator stays inside the specification.
-It therefore emits neither a width below 2 nor a first message word of `0`;
-those are deliberate fixes, and the snapshot cases already cover them.
+The suite clears `LANG`, `LC_ALL`, `LC_CTYPE` and `COWSAY_AMBIGUOUS_WIDTH`.
+A wasm run sees no environment, so a native run must not read the machine's.
+A width case sets the ones it tests.
 
-`submodules/cowsay-files` holds [paulkaefer/cowsay-files](https://github.com/paulkaefer/cowsay-files),
-a collection of third-party cowfiles, at a fixed commit.
-It is a submodule because it carries no license that would let us copy its files.
-`make check` runs 13 of its cowfiles, one for each shape the collection writes.
-`make check-cowsay-files` runs all of them, natively, or under wasmtime with `COWSAY_TEST_MODE=wasm`.
-It checks that each one matches the reference or is refused, and counts the refusals by reason.
-A cowfile is Perl code that the reference runs with `do`,
-so a cowfile reaches the reference only after our parser accepts it.
-Updating the submodule is a reviewed change like any other.
+Fuzz cases stay inside the specification: no width below 2, and no first message word `0`.
+Those are deliberate fixes, which the snapshots cover.
+
+`submodules/cowsay-files` is [paulkaefer/cowsay-files](https://github.com/paulkaefer/cowsay-files) at a fixed commit.
+It is a submodule because it has no license that lets us copy its files.
+`make check` runs 13 of its cowfiles, and `make check-cowsay-files` runs all of them.
+Each one must match the reference or be refused.
+The reference runs a cowfile with Perl `do`, so only cowfiles our parser accepts reach it.
 
 The suite reads these files, with paths relative to `test/`:
 
 | Path | What it holds |
 | --- | --- |
-| `reference/cowsay` | cowsay 3.03 unmodified, the reference every differential case runs against |
-| `fixed/` | snapshots of the deliberate fixes, which diverge from the reference on purpose |
+| `reference/cowsay` | cowsay 3.03 unmodified, the reference for every differential case |
+| `fixed/` | snapshots of the deliberate fixes, which differ from the reference |
 | `width/` | snapshots of non-ASCII width, which the byte-based reference cannot define |
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
-| `../ucd/` | the UCD files as published; the tables and the break test are read from there |
+| `../ucd/` | the UCD files as published, read for the tables and the break test |
 | `submodules/` | third-party cowfile collections, each a Git submodule at a fixed commit |
 
 ## Output specification
