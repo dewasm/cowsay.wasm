@@ -138,6 +138,7 @@ $the_cow = <<EOC;
 The terminator may be quoted as `<<"EOC"`, and the semicolon may be left out, as `sheep.cow` does.
 Once the terminator line closes the heredoc, only comments and blank lines may follow.
 A `#` comment may end any statement, the heredoc line included.
+A CR before an LF is dropped anywhere in the file, as Perl drops it, so CRLF line ends read as LF.
 
 The assignments before it are these, each on one line:
 

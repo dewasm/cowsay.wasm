@@ -545,6 +545,12 @@ cow_refused() { # <name> <line-number> <message> <line>...
   cow_refused append-unknown 1 'unsupported cowfile construct' \
     '$y .= "a";' '$the_cow = <<EOC;' 'EOC'
   cow_refused single-quoted 1 'unsupported cowfile construct' "\$x = 'a';" '$the_cow = <<EOC;' 'EOC'
+  # Perl drops a CR before an LF anywhere in the source, and keeps a lone CR.
+  cow_case crlf $'# a comment\r' $'$x = "a"; # set\r' $'$the_cow = <<EOC;\r' $'$x $thoughts\\\r' \
+    $'b\r' $'EOC\r'
+  cow_case crlf-one-line '$the_cow = <<EOC;' $'a\r' 'EOC'
+  cow_case crlf-terminator '$the_cow = <<EOC;' 'a' $'EOC\r'
+  cow_case lone-cr '$the_cow = <<EOC;' $'a\rb' 'EOC'
 }
 
 section submodules
@@ -574,10 +580,11 @@ submodule_case paulkaefer-cowsay-files tortoise
 submodule_case paulkaefer-cowsay-files USA
 # Escapes in the heredoc: \_ and a \ before a space.
 submodule_case paulkaefer-cowsay-files atat
+# CRLF line ends.
+submodule_case paulkaefer-cowsay-files chiyo-chichi
 # Outside the grammar.
 submodule_refused paulkaefer-cowsay-files cake 8 'unescaped @ in cowfile'
 submodule_refused paulkaefer-cowsay-files golden-eagle 8 'unescaped $ in cowfile'
-submodule_refused paulkaefer-cowsay-files chiyo-chichi 1 'unsupported cowfile construct'
 
 # cowsay-org-cowsay: the cowfiles that are new since 3.03 or changed; cows/ covers the rest.
 submodule_case cowsay-org-cowsay actually
@@ -593,7 +600,7 @@ submodule_refused cowsay-org-cowsay sus 4 'unsupported cowfile construct'
 # phmajerus-cowfiles: color and Unicode, as \x1B, \x{...} and \xA0 beside them.
 submodule_case phmajerus-cowfiles alexkidd
 # CRLF line ends.
-submodule_refused phmajerus-cowfiles clippit 6 'unsupported cowfile construct'
+submodule_case phmajerus-cowfiles clippit
 
 # mstill3-cowsay-files: drawn by hand, most under a comment header.
 submodule_case mstill3-cowsay-files aardvark

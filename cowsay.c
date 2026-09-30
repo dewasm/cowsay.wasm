@@ -794,7 +794,14 @@ static int parse_preamble_stmt(const char *line, int lineno) {
 }
 
 /* Parse a cowfile's bytes into the cow text. */
-static char *parse_cow(const char *data, size_t n) {
+static char *parse_cow(const char *raw, size_t raw_len) {
+  // Perl drops a CR before an LF anywhere in its source, as a build without PERL_STRICT_CR does.
+  Buf src = {0};
+  buf_append(&src, "", 0);
+  for (size_t k = 0; k < raw_len; k++)
+    if (!(raw[k] == '\r' && k + 1 < raw_len && raw[k + 1] == '\n')) buf_push(&src, raw[k]);
+  const char *data = src.p;
+  size_t n = src.len;
   Buf out = {0};
   Enc enc = {0};
   char *term = NULL;
@@ -855,6 +862,7 @@ static char *parse_cow(const char *data, size_t n) {
   if (state == BODY) cow_error(lineno, "unterminated heredoc");
   enc_check(&enc);
   free(term);
+  free(src.p);
   if (!out.p) buf_append(&out, "", 0);
   return out.p;
 }
