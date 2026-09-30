@@ -6,6 +6,8 @@ WASM_CFLAGS = $(CFLAGS) -Oz -flto -Wl,--strip-all
 
 COWS = $(sort $(wildcard cows/*.cow))
 SRC = cowsay.c width.c
+# The wasm build brings its own heap; the native build keeps the system allocator.
+WASM_SRC = $(SRC) alloc.c
 
 # The README promises a binary under 100 kB; check-size holds every build to it.
 WASM_SIZE_LIMIT = 100000
@@ -25,8 +27,8 @@ all: cowsay.wasm
 cows_embedded.h: tools/embed-cows.sh $(COWS)
 	sh tools/embed-cows.sh $(COWS) > $@
 
-cowsay.wasm: $(SRC) cows_embedded.h unicode_tables.h width.h
-	$(WASI_SDK_PATH)/bin/clang --target=wasm32-wasip1 $(WASM_CFLAGS) -o $@ $(SRC)
+cowsay.wasm: $(WASM_SRC) cows_embedded.h unicode_tables.h width.h
+	$(WASI_SDK_PATH)/bin/clang --target=wasm32-wasip1 $(WASM_CFLAGS) -o $@ $(WASM_SRC)
 	@command -v wasm-opt >/dev/null && { wasm-opt -Oz -o $@.opt $@ && mv $@.opt $@; } || true
 	@ls -l $@
 
