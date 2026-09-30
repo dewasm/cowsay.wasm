@@ -25,6 +25,15 @@ The width cases hand in what they need one at a time.
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
 | `../ucd/` | the UCD files as published; the tables and the break test are read from there |
+| `cowsay-files/` | the submodule [paulkaefer/cowsay-files](https://github.com/paulkaefer/cowsay-files), at a fixed commit |
+
+The collection is a submodule because it carries no license that would let us copy its files.
+`make check` runs 13 of its cowfiles, one for each shape the collection writes.
+`make check-cowsay-files` runs all of them, natively, or under wasmtime with `COWSAY_TEST_MODE=wasm`.
+It checks that each one matches the reference or is refused, and counts the refusals by reason.
+A cowfile is Perl code that the reference runs with `do`,
+so a cowfile reaches the reference only after our parser accepts it.
+Updating the submodule is a reviewed change like any other.
 
 The fuzz generator stays inside the specification.
 It therefore emits neither a width below 2 nor a first message word of `0`;
@@ -127,23 +136,29 @@ $the_cow = <<EOC;
 
 The terminator may be quoted as `<<"EOC"`, and the semicolon may be left out, as `sheep.cow` does.
 Once the terminator line closes the heredoc, only comments and blank lines may follow.
+A `#` comment may end any statement, the heredoc line included.
 
-The assignments before it are the eye idioms that the shipped cowfiles use:
+The assignments before it are these, each on one line:
 
+- `$var = "...";` sets a variable of any name but `the_cow`, as converted cowfiles do:
+  `$x = "\e[49m  ";` and `$t = "$thoughts ";`.
+  Setting `$eyes`, `$tongue` or `$thoughts` changes what the heredoc reads.
+- `$var .= "...";` appends to a variable that has a value.
 - `$var = chop($eyes);` moves the last character of `$eyes` into a variable of any other name.
 - `$var = substr($eyes, 0, 1);` copies the character at that position instead, as `clawd.cow` does.
-- `$eyes .= ($var x 2);` appends that character twice, as `three-eyes.cow` does.
-- `$eyes .= " $var";` appends it after one or more spaces, as `udder.cow` does with one.
-- `$eyes .= "  ";` appends a literal, which `clawd.cow` uses to pad `$eyes` out to two characters.
+- `$var .= ($other x 2);` appends a variable twice, as `three-eyes.cow` does to `$eyes`.
 - `$eyes = "..." unless ($eyes);` fills in a default, as `small.cow` does.
 - `$eyes = "..." if ($eyes eq "...");` replaces one value with another;
   `clawd.cow` blanks the default `oo` that way, so its eye cells stay plain until `-e` fills them.
+
+A literal `"..."` follows the rules of the heredoc body below, with `\"` for a quote.
+Perl can run code from inside one, as in `"@{[ ... ]}"`, and those rules refuse every such form.
 
 Inside the heredoc body:
 
 - `$thoughts`, `$eyes`, `$tongue`, and any variable from the assignments above, interpolate.
   The `${name}` form works as well.
-- The escapes are `\\`, `\$`, `\@` and `\e`, that last one being the ESC `clawd.cow` colors with.
+- The escapes are `\\`, `\$`, `\@`, `\"` and `\e`, the ESC that `clawd.cow` colors with.
 - An unknown `$name` is refused rather than interpolated.
   So is a `$` that no name follows: Perl reads `$?` or `$/` as a special variable,
   and skips spaces to find a name, so `$ /` means `$/` too.

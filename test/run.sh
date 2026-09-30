@@ -11,6 +11,8 @@
 # Cases marked "pathonly" skip the embedded run: -l prints the cowfile directory in its header.
 #
 # COWSAY_TEST_MODE=wasm runs cowsay.wasm under wasmtime instead of cowsay-native.
+#
+# `run.sh --all-cowsay-files` runs every cowfile of the test/cowsay-files submodule instead.
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -21,6 +23,11 @@ unset LANG LC_ALL LC_CTYPE COWSAY_AMBIGUOUS_WIDTH
 ROOT=$PWD
 COWS=$ROOT/cows
 REF=$ROOT/test/reference/cowsay
+COWSAY_FILES=$ROOT/test/cowsay-files/cows
+if [ ! -d "$COWSAY_FILES" ]; then
+  echo "test/cowsay-files is empty: run git submodule update --init" >&2
+  exit 1
+fi
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -55,7 +62,7 @@ else
 fi
 
 DOTS_PER_LINE=64
-LABEL_WIDTH=10
+LABEL_WIDTH=12
 section_name=''
 section_pass=0
 section_fail=0
@@ -230,6 +237,68 @@ fixed() { # <name> <expected-exit> <stdin-string> [args...]
   done
 }
 
+# A cowfile refused with an error naming the line, never rendered.
+expect_refused() { # <label> <dir> <name> <line> <message>
+  printf '%s\n' "cowsay: $2/$3.cow:$4: $5" >"$TMP/want.err"
+  COWS=$2 run_ours 0 path /dev/null -f "$3" moo
+  if [ "$(cat "$TMP/got.code")" = 1 ] && cmp -s "$TMP/want.err" "$TMP/got.err"; then
+    tick ok
+  else
+    tick failed
+    {
+      echo "FAIL: $1: exit $(cat "$TMP/got.code")"
+      diff -u "$TMP/want.err" "$TMP/got.err" | head -10 | sed 's/^/  err /'
+    } >>"$FAILLOG"
+  fi
+}
+
+finish() {
+  section_end
+  if [ "$fail" -gt 0 ]; then
+    printf '\n'
+    cat "$FAILLOG"
+  fi
+  # The trailing blank line keeps the two modes of `make check` apart.
+  if [ "$fail" -eq 0 ]; then
+    printf '\n%s%s: %d ok%s in %ds\n\n' "$C_OK" "$MODE" "$pass" "$C_OFF" "$SECONDS"
+  else
+    printf '\n%s%s: %d failed%s, %d ok, in %ds\n\n' \
+      "$C_BAD" "$MODE" "$fail" "$C_OFF" "$pass" "$SECONDS"
+  fi
+  [ "$fail" -eq 0 ]
+}
+
+# Each cowfile of the submodule matches the reference, or is refused with an error naming the line.
+# A cowfile is Perl code that the reference runs with `do`,
+# so the reference only sees what our parser accepted.
+all_cowsay_files() {
+  local cow name before matched=0
+  : >"$TMP/reasons"
+  section cowsay-files
+  for cow in "$COWSAY_FILES"/*.cow; do
+    name=$(basename "$cow" .cow)
+    COWS=$COWSAY_FILES run_ours 0 path /dev/null -f "$name" moo
+    if [ "$(cat "$TMP/got.code")" = 1 ] && [[ "$(cat "$TMP/got.err")" == "cowsay: $cow:"* ]]; then
+      sed 's/^.*:[0-9]*: //' "$TMP/got.err" >>"$TMP/reasons"
+      tick ok
+      continue
+    fi
+    COWS=$COWSAY_FILES run_ref 0 /dev/null -f "$name" moo
+    before=$fail
+    report "cowsay-files-$name" path -f "$name" moo
+    [ "$fail" = "$before" ] && matched=$((matched + 1))
+  done
+  section_end
+  printf '\n%d match the reference; %d are refused:\n' "$matched" "$(wc -l <"$TMP/reasons")"
+  sort "$TMP/reasons" | uniq -c | sort -rn
+}
+
+if [ "${1-}" = --all-cowsay-files ]; then
+  all_cowsay_files
+  finish
+  exit
+fi
+
 section basics
 t one-word '' hi
 t sentence '' Hello from dewasm!
@@ -330,17 +399,7 @@ body_case() { # <name> <body-line>
 # Perl interpolates these, often to a value of the process, so the grammar refuses them.
 refused() { # <name> <body-line> <message>
   write_body "$1" "$2"
-  printf '%s\n' "cowsay: $BODIES/$1.cow:2: $3" >"$TMP/want.err"
-  COWS=$BODIES run_ours 0 path /dev/null -f "$1" moo
-  if [ "$(cat "$TMP/got.code")" = 1 ] && cmp -s "$TMP/want.err" "$TMP/got.err"; then
-    tick ok
-  else
-    tick failed
-    {
-      echo "FAIL: refused-$1: exit $(cat "$TMP/got.code")"
-      diff -u "$TMP/want.err" "$TMP/got.err" | head -10 | sed 's/^/  err /'
-    } >>"$FAILLOG"
-  fi
+  expect_refused "refused-$1" "$BODIES" "$1" 2 "$3"
 }
 
 # shellcheck disable=SC2016
@@ -370,6 +429,85 @@ refused() { # <name> <body-line> <message>
   refused at-plus 'a@+ b' 'unescaped @ in cowfile'
   refused at-minus 'a@- b' 'unescaped @ in cowfile'
 }
+
+section preamble
+# Each case is a whole cowfile, one argument per line.
+write_cow() { # <name> <line>...
+  local name=$1
+  shift
+  printf '%s\n' "$@" >"$BODIES/$name.cow"
+}
+
+cow_case() { # <name> <line>...
+  write_cow "$@"
+  COWS=$BODIES t_pathonly "preamble-$1" '' -f "$1" moo
+}
+
+cow_refused() { # <name> <line-number> <message> <line>...
+  local name=$1 at=$2 message=$3
+  shift 3
+  write_cow "$name" "$@"
+  expect_refused "preamble-$name" "$BODIES" "$name" "$at" "$message"
+}
+
+# shellcheck disable=SC2016
+{
+  cow_case assign '$x = "\e[49m  ";          #reset color' '$the_cow = <<EOC' '[$x]' 'EOC'
+  cow_case assign-thoughts '$t = "$thoughts ";' '$the_cow = <<EOC;' '$t$t' 'EOC'
+  cow_case assign-variables '$a = "<";' '$b = "$a${a}$eyes$tongue";' '$the_cow = <<EOC;' '$b' 'EOC'
+  cow_case assign-comment-text '$x = "a # b; c";' '$the_cow = <<EOC;' '$x' 'EOC'
+  cow_case assign-escapes '$x = "\"\\\$\@";' '$the_cow = <<EOC;' '$x' 'EOC'
+  cow_case assign-again '$x = "a";' '$x = "b";' '$the_cow = <<EOC;' '$x' 'EOC'
+  cow_case assign-eyes '$eyes = "^^"; # always' '$the_cow = <<EOC;' '($eyes)' 'EOC'
+  cow_case append '$x = "a";' '$x .= " $tongue!";' '$the_cow = <<EOC;' '$x' 'EOC'
+  cow_case append-tongue '$tongue .= "!";' '$the_cow = <<EOC;' '$tongue' 'EOC'
+  cow_case idiom-comment '$extra = chop($eyes);  # the third eye' '$the_cow = <<EOC;' '$eyes$extra' 'EOC'
+  cow_case heredoc-comment '$the_cow = <<EOC; # the cow' '$thoughts' 'EOC'
+  cow_case heredoc-comment-no-semicolon '$the_cow = <<EOC # the cow' '$thoughts' 'EOC'
+  cow_refused escape 1 'unsupported escape in cowfile' '$x = "\t";' '$the_cow = <<EOC;' 'EOC'
+  cow_refused code 1 'unescaped @ in cowfile' '$x = "@{[ 1 ]}";' '$the_cow = <<EOC;' 'EOC'
+  cow_refused code-in-idiom 1 'unescaped @ in cowfile' \
+    '$eyes .= "@{[ 1 ]}";' '$the_cow = <<EOC;' 'EOC'
+  cow_refused code-in-condition 1 'unescaped @ in cowfile' \
+    '$eyes = "" if ($eyes eq "@{[ 1 ]}");' '$the_cow = <<EOC;' 'EOC'
+  cow_refused scalar-code 1 'unsupported ${...} form' '$x = "${\ 1}";' '$the_cow = <<EOC;' 'EOC'
+  cow_refused unknown 1 'unknown variable in cowfile' '$x = "$y";' '$the_cow = <<EOC;' 'EOC'
+  cow_refused two-lines 1 'unsupported cowfile construct' '$x = "a' 'b";' '$the_cow = <<EOC;' 'EOC'
+  cow_refused no-semicolon 1 'unsupported cowfile construct' '$x = "a"' '$the_cow = <<EOC;' 'EOC'
+  cow_refused append-unknown 1 'unsupported cowfile construct' '$y .= "a";' '$the_cow = <<EOC;' 'EOC'
+  cow_refused single-quoted 1 'unsupported cowfile construct' "\$x = 'a';" '$the_cow = <<EOC;' 'EOC'
+}
+
+section cowsay-files
+# Cowfiles of the test/cowsay-files submodule, one for each shape the collection writes.
+# `make check-cowsay-files` runs all of them.
+collection_case() { # <name>
+  COWS=$COWSAY_FILES t_pathonly "cowsay-files-$1" '' -f "$1" moo
+}
+
+collection_refused() { # <name> <line-number> <message>
+  expect_refused "cowsay-files-$1" "$COWSAY_FILES" "$1" "$2" "$3"
+}
+
+# Charc0al's converter; most omit the semicolon after <<EOC and put two spaces before the comment.
+collection_case abu-apple
+collection_case 47
+collection_case cartman
+# 52 variables, some named with two letters.
+collection_case baby_yoda
+# $x inside a literal.
+collection_case ignignokt
+# No comment after the assignments.
+collection_case err
+# Drawn by hand.
+collection_case kidcat
+collection_case tortoise
+collection_case USA
+# Outside the grammar.
+collection_refused atat 9 'unsupported escape in cowfile'
+collection_refused cake 8 'unescaped @ in cowfile'
+collection_refused golden-eagle 8 'unescaped $ in cowfile'
+collection_refused chiyo-chichi 1 'unsupported cowfile construct'
 
 section usage
 # Deliberate fix: usage exits with EX_USAGE (64) instead of the reference's 255.
@@ -455,16 +593,4 @@ width_case ambiguous-default '' '§§§ ±±± °°°'
 width_env LANG=ja_JP.UTF-8 -- ambiguous-locale '' '§§§ ±±± °°°'
 width_env LANG=ja_JP.UTF-8 COWSAY_AMBIGUOUS_WIDTH=1 -- ambiguous-override '' '§§§ ±±± °°°'
 
-section_end
-if [ "$fail" -gt 0 ]; then
-  printf '\n'
-  cat "$FAILLOG"
-fi
-# The trailing blank line keeps the two modes of `make check` apart.
-if [ "$fail" -eq 0 ]; then
-  printf '\n%s%s: %d ok%s in %ds\n\n' "$C_OK" "$MODE" "$pass" "$C_OFF" "$SECONDS"
-else
-  printf '\n%s%s: %d failed%s, %d ok, in %ds\n\n' \
-    "$C_BAD" "$MODE" "$fail" "$C_OFF" "$pass" "$SECONDS"
-fi
-[ "$fail" -eq 0 ]
+finish

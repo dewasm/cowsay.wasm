@@ -17,7 +17,7 @@ UCD_FILES = $(UCD)/EastAsianWidth.txt $(UCD)/DerivedCoreProperties.txt \
             $(UCD)/DerivedGeneralCategory.txt $(UCD)/emoji-data.txt \
             $(UCD)/GraphemeBreakProperty.txt
 
-.PHONY: all check check-width check-native check-wasm check-size lint update-ucd clean
+.PHONY: all check check-width check-native check-wasm check-size check-cowsay-files lint update-ucd clean
 
 all: cowsay.wasm
 
@@ -46,6 +46,11 @@ check-native: cowsay-native
 
 check-wasm: cowsay.wasm
 	@COWSAY_TEST_MODE=wasm bash test/run.sh
+
+# Every cowfile of the test/cowsay-files submodule, outside `make check`; native unless
+# COWSAY_TEST_MODE=wasm.
+check-cowsay-files: $(if $(filter wasm,$(COWSAY_TEST_MODE)),cowsay.wasm,cowsay-native)
+	@bash test/run.sh --all-cowsay-files
 
 check-size: cowsay.wasm
 	@size=$$(wc -c < cowsay.wasm | tr -d ' '); \
