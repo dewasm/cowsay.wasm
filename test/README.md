@@ -142,6 +142,12 @@ The assignments before it are the eye idioms that the shipped cowfiles use:
 Inside the heredoc body:
 
 - `$thoughts`, `$eyes`, `$tongue`, and any variable from the assignments above, interpolate.
-  The `${name}` form works as well, while a `$` that no name follows stays literal.
+  The `${name}` form works as well.
 - The escapes are `\\`, `\$`, `\@` and `\e`, that last one being the ESC `clawd.cow` colors with.
-- A bare `@name` is refused rather than interpolated, and so is an unknown `$name`.
+- An unknown `$name` is refused rather than interpolated.
+  So is a `$` that no name follows: Perl reads `$?` or `$/` as a special variable,
+  and skips spaces to find a name, so `$ /` means `$/` too.
+- An unbraced `$name` followed by `[`, `{`, `->[`, `->{`, `::`, or `'` and a letter is refused.
+  Perl reads those as an element or a package variable.
+- `@` is refused before a letter, a digit, `_`, `:`, `'`, `{`, `$`, `+` or `-`,
+  where Perl interpolates an array such as `@+`; before anything else it stays literal.

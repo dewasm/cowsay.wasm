@@ -311,6 +311,66 @@ fixed cow-slash-missing 2 '' -f /no/such/file.cow moo
 # Needs the real filesystem: without a preopen the wasm build cannot open the absolute path.
 t_pathonly cow-slash-path '' -f "$COWS/default.cow" moo
 
+section heredoc
+# Each case is a cowfile of one body line, found through a COWPATH of its own.
+BODIES=$TMP/bodies
+mkdir "$BODIES"
+
+# The single quotes here and in the cases keep the Perl text from the shell.
+# shellcheck disable=SC2016
+write_body() { # <name> <body-line>
+  printf '$the_cow = <<EOC;\n%s\nEOC\n' "$2" >"$BODIES/$1.cow"
+}
+
+body_case() { # <name> <body-line>
+  write_body "$1" "$2"
+  COWS=$BODIES t_pathonly "body-$1" '' -f "$1" moo
+}
+
+# Perl interpolates these, often to a value of the process, so the grammar refuses them.
+refused() { # <name> <body-line> <message>
+  write_body "$1" "$2"
+  printf '%s\n' "cowsay: $BODIES/$1.cow:2: $3" >"$TMP/want.err"
+  COWS=$BODIES run_ours 0 path /dev/null -f "$1" moo
+  if [ "$(cat "$TMP/got.code")" = 1 ] && cmp -s "$TMP/want.err" "$TMP/got.err"; then
+    tick ok
+  else
+    tick failed
+    {
+      echo "FAIL: refused-$1: exit $(cat "$TMP/got.code")"
+      diff -u "$TMP/want.err" "$TMP/got.err" | head -10 | sed 's/^/  err /'
+    } >>"$FAILLOG"
+  fi
+}
+
+# shellcheck disable=SC2016
+{
+  body_case at-space 'a @ b'
+  body_case at-at 'a@@ b'
+  body_case at-paren 'a@) b'
+  body_case arrow-word 'a$eyes->x b'
+  body_case single-colon 'a$eyes:x b'
+  body_case braced-subscript 'a${eyes}[0] b'
+  body_case escaped '\$? \@+ \$eyes[0]'
+  refused dollar-punct 'a$? b' 'unescaped $ in cowfile'
+  refused dollar-space 'a$ /b' 'unescaped $ in cowfile'
+  refused dollar-eol 'a$' 'unescaped $ in cowfile'
+  refused dollar-digit 'a$1 b' 'unescaped $ in cowfile'
+  refused element 'a$eyes[0] b' 'unsupported subscript in cowfile'
+  refused hash-element 'a$eyes{x} b' 'unsupported subscript in cowfile'
+  refused arrow-element 'a$eyes->[0] b' 'unsupported subscript in cowfile'
+  refused package 'a$eyes::x b' 'unsupported subscript in cowfile'
+  refused old-package "a\$eyes'x b" 'unsupported subscript in cowfile'
+  refused at-digit 'a@9 b' 'unescaped @ in cowfile'
+  refused at-underscore 'a@_ b' 'unescaped @ in cowfile'
+  refused at-colon 'a@: b' 'unescaped @ in cowfile'
+  refused at-quote "a@'b" 'unescaped @ in cowfile'
+  refused at-brace 'a@{b}' 'unescaped @ in cowfile'
+  refused at-dollar 'a@$b' 'unescaped @ in cowfile'
+  refused at-plus 'a@+ b' 'unescaped @ in cowfile'
+  refused at-minus 'a@- b' 'unescaped @ in cowfile'
+}
+
 section usage
 # Deliberate fix: usage exits with EX_USAGE (64) instead of the reference's 255.
 # The usage text also drops a stray trailing space.
