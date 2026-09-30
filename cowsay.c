@@ -1052,31 +1052,35 @@ static char *read_file(const char *path, size_t *out_len) {
   return b.p;
 }
 
-/* The built-in cowfiles joined, expanded from cows_lzss the first time one is needed.
- * cows_lzss is LZSS as tools/embed-cows.pl writes it: a flag byte leads each group of eight items,
+/* Expand LZSS from `in` into text[from, to), whose earlier bytes a reference may copy.
+ * The format is the one tools/embed-cows.pl writes: a flag byte leads each group of eight items,
  * low bit first. A clear bit is one literal byte.
- * A set bit is a two-byte big-endian reference: (distance - 1) << 4 | (length - 3).
+ * A set bit is a two-byte big-endian reference: (distance - 1) << COW_LENGTH_BITS | (length - 3).
  */
-static const char *cows_text(void) {
-  static char text[COWS_TEXT_LEN];
-  static int expanded;
-  if (expanded) return text;
-  const unsigned char *in = cows_lzss;
-  size_t n = 0;
-  while (n < COWS_TEXT_LEN) {
+static void lzss_expand(const unsigned char *in, char *text, size_t from, size_t to) {
+  size_t n = from;
+  while (n < to) {
     unsigned flags = *in++;
-    for (int bit = 0; bit < 8 && n < COWS_TEXT_LEN; bit++, flags >>= 1) {
+    for (int bit = 0; bit < 8 && n < to; bit++, flags >>= 1) {
       if (flags & 1) {
         unsigned ref = (unsigned)in[0] << 8 | in[1];
         in += 2;
-        for (unsigned len = (ref & 15) + 3; len; len--, n++) text[n] = text[n - (ref >> 4) - 1];
+        size_t distance = (ref >> COW_LENGTH_BITS) + 1;
+        for (unsigned len = (ref & ((1u << COW_LENGTH_BITS) - 1)) + 3; len; len--, n++)
+          text[n] = text[n - distance];
       } else {
         text[n++] = (char)*in++;
       }
     }
   }
-  expanded = 1;
-  return text;
+}
+
+/* A built-in cowfile, expanded after the shared dictionary that leads cows_lzss. */
+static const char *cow_text(const struct embedded_cow *e) {
+  char *text = xrealloc(NULL, COW_DICT_LEN + e->len);
+  lzss_expand(cows_lzss, text, 0, COW_DICT_LEN);
+  lzss_expand(cows_lzss + e->offset, text, COW_DICT_LEN, COW_DICT_LEN + e->len);
+  return text + COW_DICT_LEN;
 }
 
 static const struct embedded_cow *find_embedded(const char *name) {
@@ -1180,7 +1184,7 @@ static char *cow_in_dir(const char *dir, const char *name) {
     }
     if (!e) return NULL;
     cow_source = e->name;
-    return parse_cow(cows_text() + e->offset, e->len);
+    return parse_cow(cow_text(e), e->len);
   }
   for (int suffix = 0; suffix < 2; suffix++) {
     Buf path = {0};

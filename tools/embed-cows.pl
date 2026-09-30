@@ -4,9 +4,10 @@
 #
 # Usage: embed-cows.pl cows/*.cow > cows_embedded.h
 #
-# The cowfiles are joined in argument order, so the caller passes them sorted by name.
-# The joined text is compressed as LZSS, which cowsay.c expands on first use;
-# plain, it would be about 17 kB more of the binary.
+# Each cowfile is compressed on its own as LZSS, so cowsay.c expands only the one it draws.
+# Every one may refer back into a shared dictionary: the lines two or more cowfiles have in common.
+# Compressed together instead, the cowfiles would take 0.6 kB less,
+# but drawing any of them would expand all 24 kB.
 #
 # The comments and blank lines above the heredoc are dropped, since the parser ignores them anyway.
 # Everything from the heredoc line on is copied untouched;
@@ -15,11 +16,12 @@
 use strict;
 use warnings;
 
-# The format cows_text in cowsay.c reads: a flag byte leads each group of eight items,
+# The format lzss_expand in cowsay.c reads: a flag byte leads each group of eight items,
 # low bit first. A clear bit is one literal byte.
-# A set bit is a two-byte big-endian reference: (distance - 1) << 4 | (length - 3).
-my $WINDOW = 4096;
-my ($MIN_MATCH, $MAX_MATCH) = (3, 18);
+# A set bit is a two-byte big-endian reference: (distance - 1) << 5 | (length - 3).
+my ($DISTANCE_BITS, $LENGTH_BITS) = (11, 5);
+my $WINDOW = 1 << $DISTANCE_BITS;
+my ($MIN_MATCH, $MAX_MATCH) = (3, (1 << $LENGTH_BITS) + 2);
 
 sub strip {
   my $path = shift;
@@ -33,33 +35,68 @@ sub strip {
   return $out;
 }
 
-# Greedy parse: at each position, the longest match in the window, the nearest among equals.
+# The dictionary: the lines two or more cowfiles share.
+# The more a line would save, the nearer it sits to the cowfile that follows.
+sub dictionary {
+  my %count;
+  for my $text (@_) {
+    my %seen = map { $_ => 1 } grep { length > $MIN_MATCH } $text =~ /([^\n]*\n)/g;
+    $count{$_}++ for keys %seen;
+  }
+  my %saving = map { $_ => ($count{$_} - 1) * length } grep { $count{$_} >= 2 } keys %count;
+  return join '', sort { $saving{$a} <=> $saving{$b} || $a cmp $b } keys %saving;
+}
+
+# The parse with the fewest bits for $text[$start ..], which may refer back into $text[0 .. $start).
+# A literal costs 9 bits with its flag, a reference 17.
 sub compress {
-  my $text = shift;
-  my ($out, %seen, @items) = ('');
+  my ($text, $start) = @_;
   my $n = length $text;
-  my $i = 0;
-  while ($i < $n) {
-    my ($best, $distance) = (0, 0);
-    for my $j (reverse @{ $seen{substr $text, $i, $MIN_MATCH} // [] }) {
+  my (%seen, @matches);
+  push @{ $seen{substr $text, $_, $MIN_MATCH} }, $_ for 0 .. $start - 1;
+  for my $i ($start .. $n - 1) {
+    my $key = substr $text, $i, $MIN_MATCH;
+    my ($best, @found) = (0);
+    for my $j (reverse @{ $seen{$key} // [] }) {
       last if $i - $j > $WINDOW;
       my $len = 0;
       $len++ while $len < $MAX_MATCH && $i + $len < $n
         && substr($text, $j + $len, 1) eq substr($text, $i + $len, 1);
-      ($best, $distance) = ($len, $i - $j) if $len > $best;
+      if ($len > $best) {
+        $best = $len;
+        push @found, [$len, $i - $j];
+      }
     }
-    my $step = $best >= $MIN_MATCH ? $best : 1;
-    push @items, $best >= $MIN_MATCH ? [$distance, $best] : substr $text, $i, 1;
-    push @{ $seen{substr $text, $_, $MIN_MATCH} }, $_ for $i .. $i + $step - 1;
-    $i += $step;
+    $matches[$i] = \@found;
+    push @{ $seen{$key} }, $i;
   }
+  my (@cost, @choice);
+  $cost[$n] = 0;
+  for (my $i = $n - 1; $i >= $start; $i--) {
+    ($cost[$i], $choice[$i]) = (9 + $cost[$i + 1], undef);
+    my $shortest = $MIN_MATCH;
+    for my $m (@{ $matches[$i] }) {
+      my ($len, $distance) = @$m;
+      for my $l ($shortest .. $len) {
+        next if 17 + $cost[$i + $l] >= $cost[$i];
+        ($cost[$i], $choice[$i]) = (17 + $cost[$i + $l], [$distance, $l]);
+      }
+      $shortest = $len + 1;
+    }
+  }
+  my @items;
+  for (my $i = $start; $i < $n;) {
+    push @items, $choice[$i] // substr $text, $i, 1;
+    $i += $choice[$i] ? $choice[$i][1] : 1;
+  }
+  my $out = '';
   while (my @group = splice @items, 0, 8) {
     my ($flags, $body) = (0, '');
     for my $bit (0 .. $#group) {
       if (ref $group[$bit]) {
         my ($distance, $len) = @{ $group[$bit] };
         $flags |= 1 << $bit;
-        $body .= pack 'n', ($distance - 1) << 4 | ($len - $MIN_MATCH);
+        $body .= pack 'n', ($distance - 1) << $LENGTH_BITS | ($len - $MIN_MATCH);
       } else {
         $body .= $group[$bit];
       }
@@ -70,8 +107,8 @@ sub compress {
 }
 
 sub expand {
-  my ($packed, $n) = @_;
-  my ($text, $i) = ('', 0);
+  my ($packed, $text, $n) = @_;
+  my $i = 0;
   while (length $text < $n) {
     my $flags = ord substr $packed, $i++, 1;
     for my $bit (0 .. 7) {
@@ -79,7 +116,8 @@ sub expand {
       if ($flags >> $bit & 1) {
         my $v = unpack 'n', substr $packed, $i, 2;
         $i += 2;
-        $text .= substr $text, -(($v >> 4) + 1), 1 for 1 .. ($v & 15) + $MIN_MATCH;
+        $text .= substr $text, -(($v >> $LENGTH_BITS) + 1), 1
+          for 1 .. ($v & ((1 << $LENGTH_BITS) - 1)) + $MIN_MATCH;
       } else {
         $text .= substr $packed, $i++, 1;
       }
@@ -90,9 +128,18 @@ sub expand {
 
 my @names = map { m{([^/]+)$} } @ARGV;
 my @texts = map { strip($_) } @ARGV;
-my $text = join '', @texts;
-my $packed = compress($text);
-expand($packed, length $text) eq $text or die "embed-cows.pl: the compressed text does not expand back\n";
+my $dict = dictionary(@texts);
+my $packed = compress($dict, 0);
+expand($packed, '', length $dict) eq $dict
+  or die "embed-cows.pl: the dictionary does not expand back\n";
+my @offsets;
+for my $text (@texts) {
+  my $one = compress($dict . $text, length $dict);
+  expand($one, $dict, length($dict) + length $text) eq $dict . $text
+    or die "embed-cows.pl: a cowfile does not expand back\n";
+  push @offsets, length $packed;
+  $packed .= $one;
+}
 
 print <<"HEADER";
 /* Generated by tools/embed-cows.pl; do not edit. */
@@ -101,7 +148,8 @@ struct embedded_cow {
   unsigned int offset, len;
 };
 
-#define COWS_TEXT_LEN @{[length $text]}
+#define COW_DICT_LEN @{[length $dict]}
+#define COW_LENGTH_BITS $LENGTH_BITS
 
 static const unsigned char cows_lzss[] = {
 HEADER
@@ -110,10 +158,11 @@ while (my @line = splice @bytes, 0, 16) {
   print join(',', @line), ",\n";
 }
 print "};\n\nstatic const struct embedded_cow embedded_cows[] = {\n";
-my $offset = 0;
 for my $k (0 .. $#names) {
-  printf "  { \"%s\", %d, %d },\n", $names[$k], $offset, length $texts[$k];
-  $offset += length $texts[$k];
+  printf "  { \"%s\", %d, %d },\n", $names[$k], $offsets[$k], length $texts[$k];
 }
 print "};\n";
-printf STDERR "%d bytes of cowfiles in %d bytes\n", length $text, length $packed;
+my $total = 0;
+$total += length for @texts;
+printf STDERR "%d bytes of cowfiles in %d bytes, with a %d-byte dictionary\n",
+  $total, length $packed, length $dict;
