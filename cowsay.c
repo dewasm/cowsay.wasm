@@ -11,8 +11,9 @@
 #define _DEFAULT_SOURCE
 
 #include <dirent.h>
+#include <fcntl.h>
+#include <stdarg.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -25,6 +26,26 @@
 #define COWSAY_VERSION "3.8.4"
 #define COWSAY_WASM_VERSION "0.2.0"
 
+/* ---------- output ----------
+ *
+ * Output goes to write() rather than stdio: printf and FILE would add about 17 kB to the binary.
+ */
+
+/* Write each string argument in turn, up to a NULL. */
+static void say(int fd, ...) {
+  va_list ap;
+  va_start(ap, fd);
+  for (const char *s; (s = va_arg(ap, const char *)) != NULL;) {
+    for (size_t n = strlen(s); n;) {
+      ssize_t w = write(fd, s, n);
+      if (w <= 0) break;
+      s += w;
+      n -= (size_t)w;
+    }
+  }
+  va_end(ap);
+}
+
 /* ---------- growable byte buffer and string list ---------- */
 
 typedef struct {
@@ -35,7 +56,7 @@ typedef struct {
 static void *xrealloc(void *p, size_t n) {
   void *q = realloc(p, n ? n : 1);
   if (!q) {
-    fputs("cowsay: out of memory\n", stderr);
+    say(STDERR_FILENO, "cowsay: out of memory\n", NULL);
     exit(1);
   }
   return q;
@@ -270,49 +291,58 @@ static const char *progname = "cowsay";
  * -C is left out, since this build does not have it.
  */
 static void display_help(int status) {
-  printf("%s " VERSION_LINE "\n"
-         "\n"
-         "Usage:\n"
-         "\n"
-         "    %s [-bdgpstwy] [-f <cowfile>] [-r] [-e <eyes>] [-T <tongue>]\n"
-         "        [-W <wrapcolumn>] [-n]\n"
-         "        <message>\n"
-         "\n"
-         "    %s -l              # List defined cows\n"
-         "    %s [-h | --help]   # Display this help screen\n"
-         "\n"
-         "Options:\n"
-         "\n"
-         "    -b, -d, -g, -s, -t, -w, and -y activate Borg, dead, greedy, sleepy, tired, "
-         "wired, and\n"
-         "        young appearance modes, respectively.\n"
-         "\n"
-         "    -f <cowfile> selects an alternate cow picture. "
-         "<cowfile> may be either the name of a\n"
-         "        cow defined in a cowdir on the cowpath "
-         "(without the '.cow' file extension), or the\n"
-         "        path to a cowfile (with the '.cow' file extension). `%s -l` will list the\n"
-         "        names of available cows.\n"
-         "\n"
-         "    -r selects a random cowfile from those present on the cowpath.\n"
-         "\n"
-         "    -e <eyes> defines a custom eye appearance. <eyes> should be a two-character string.\n"
-         "        It is up to you whether they actually look like eyes.\n"
-         "\n"
-         "    -T <tongue> defines a custom tongue appearance.\n"
-         "\n"
-         "    -n activates word wrapping, to support messages with arbitrary whitespace. "
-         "Must be the\n"
-         "        last option given before <message> starts.\n"
-         "\n"
-         "    -W <wrapcolumn> controls where line wrapping occurs. Default is 40 columns.\n"
-         "\n",
-         progname, progname, progname, progname, progname);
+  say(STDOUT_FILENO, progname,
+      " " VERSION_LINE "\n"
+      "\n"
+      "Usage:\n"
+      "\n"
+      "    ",
+      progname,
+      " [-bdgpstwy] [-f <cowfile>] [-r] [-e <eyes>] [-T <tongue>]\n"
+      "        [-W <wrapcolumn>] [-n]\n"
+      "        <message>\n"
+      "\n"
+      "    ",
+      progname,
+      " -l              # List defined cows\n"
+      "    ",
+      progname,
+      " [-h | --help]   # Display this help screen\n"
+      "\n"
+      "Options:\n"
+      "\n"
+      "    -b, -d, -g, -s, -t, -w, and -y activate Borg, dead, greedy, sleepy, tired, "
+      "wired, and\n"
+      "        young appearance modes, respectively.\n"
+      "\n"
+      "    -f <cowfile> selects an alternate cow picture. "
+      "<cowfile> may be either the name of a\n"
+      "        cow defined in a cowdir on the cowpath "
+      "(without the '.cow' file extension), or the\n"
+      "        path to a cowfile (with the '.cow' file extension). `",
+      progname,
+      " -l` will list the\n"
+      "        names of available cows.\n"
+      "\n"
+      "    -r selects a random cowfile from those present on the cowpath.\n"
+      "\n"
+      "    -e <eyes> defines a custom eye appearance. <eyes> should be a two-character string.\n"
+      "        It is up to you whether they actually look like eyes.\n"
+      "\n"
+      "    -T <tongue> defines a custom tongue appearance.\n"
+      "\n"
+      "    -n activates word wrapping, to support messages with arbitrary whitespace. "
+      "Must be the\n"
+      "        last option given before <message> starts.\n"
+      "\n"
+      "    -W <wrapcolumn> controls where line wrapping occurs. Default is 40 columns.\n"
+      "\n",
+      NULL);
   exit(status);
 }
 
 static void display_version(void) {
-  printf("%s " VERSION_LINE "\n", progname);
+  say(STDOUT_FILENO, progname, " " VERSION_LINE "\n", NULL);
   exit(0);
 }
 
@@ -381,7 +411,8 @@ static int getopts(int argc, char **argv, Opts *o) {
         cluster = *rest ? rest : NULL;
       }
     } else {
-      fprintf(stderr, "Unknown option: %c\n", c);
+      char opt[2] = {c, '\0'};
+      say(STDERR_FILENO, "Unknown option: ", opt, "\n", NULL);
       cluster = *rest ? rest : NULL;
     }
   }
@@ -407,7 +438,10 @@ static const char *thoughts;
 static const char *cow_source; // display name for error messages
 
 static void cow_error(int lineno, const char *msg) {
-  fprintf(stderr, "%s: %s:%d: %s\n", progname, cow_source, lineno, msg);
+  char digits[16], *d = digits + sizeof digits;
+  *--d = '\0';
+  do *--d = (char)('0' + lineno % 10); while (lineno /= 10);
+  say(STDERR_FILENO, progname, ": ", cow_source, ":", d, ": ", msg, "\n", NULL);
   exit(1);
 }
 
@@ -1000,14 +1034,14 @@ static int is_regular_file(const char *path) {
 }
 
 static char *read_file(const char *path, size_t *out_len) {
-  FILE *fp = fopen(path, "rb");
-  if (!fp) return NULL;
+  int fd = open(path, O_RDONLY);
+  if (fd < 0) return NULL;
   Buf b = {0};
   char chunk[4096];
-  size_t got;
-  while ((got = fread(chunk, 1, sizeof chunk, fp)) > 0) buf_append(&b, chunk, got);
-  int bad = ferror(fp);
-  fclose(fp);
+  ssize_t got;
+  while ((got = read(fd, chunk, sizeof chunk)) > 0) buf_append(&b, chunk, (size_t)got);
+  close(fd);
+  int bad = got < 0;
   if (bad) {
     free(b.p);
     return NULL;
@@ -1139,7 +1173,7 @@ static char *cow_from_cowpath(const char *name) {
     char *cow = cow_in_dir(dirs.v[i], name);
     if (cow) return cow;
   }
-  fprintf(stderr, "%s: Could not find cowfile for '%s'!\n", progname, name);
+  say(STDERR_FILENO, progname, ": Could not find cowfile for '", name, "'!\n", NULL);
   exit(2); // Perl die picks up $! = ENOENT from the failed file tests
 }
 
@@ -1170,8 +1204,7 @@ static void print_name_list(List *names) {
   // list_cowfiles runs before -W is applied, so this wraps at Text::Wrap's default of 76 columns.
   long cols = 76;
   char *w = wrap_text(joined.p ? joined.p : "", joined.len, &cols);
-  fputs(w, stdout);
-  fputs("\n", stdout);
+  say(STDOUT_FILENO, w, "\n", NULL);
   free(w);
   free(joined.p);
 }
@@ -1243,14 +1276,17 @@ static void list_cowfiles(void) {
     List **names = listing_room();
     cowpath_listing(&dirs, names);
     for (size_t i = 0; i < dirs.n; i++) {
-      if (i) fputs("\n", stdout);
-      printf("Cow files in %s:\n", dirs.v[i]);
+      say(STDOUT_FILENO, i ? "\n" : "", "Cow files in ", dirs.v[i], ":\n", NULL);
       print_name_list(names[i]);
     }
   } else {
     List all = cow_names();
-    for (size_t k = 0; k < all.n; k++) printf("%s\n", all.v[k]);
-    if (!all.n) fputs("\n", stdout);
+    Buf lines = {0};
+    for (size_t k = 0; k < all.n; k++) {
+      buf_append(&lines, all.v[k], strlen(all.v[k]));
+      buf_push(&lines, '\n');
+    }
+    say(STDOUT_FILENO, all.n ? lines.p : "\n", NULL);
   }
   exit(0);
 }
@@ -1325,8 +1361,8 @@ static char *construct_balloon(char **lines, size_t n, int think) {
 static void read_stdin_lines(List *out) {
   Buf all = {0};
   char chunk[4096];
-  size_t got;
-  while ((got = fread(chunk, 1, sizeof chunk, stdin)) > 0) buf_append(&all, chunk, got);
+  ssize_t got;
+  while ((got = read(STDIN_FILENO, chunk, sizeof chunk)) > 0) buf_append(&all, chunk, (size_t)got);
   const char *s = all.p ? all.p : "";
   size_t n = all.len, start = 0;
   for (size_t i = 0; i < n; i++) {
@@ -1458,7 +1494,6 @@ int main(int argc, char **argv) {
 
   char *cow = o.r ? random_cow() : get_cow(o.f);
 
-  fputs(balloon, stdout);
-  fputs(cow, stdout);
+  say(STDOUT_FILENO, balloon, cow, NULL);
   return 0;
 }
