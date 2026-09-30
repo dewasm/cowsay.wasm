@@ -411,7 +411,7 @@ static char *match_ident(const char **p) {
  */
 typedef struct {
   int wide;        // a character above U+00FF
-  int latin1_line; // the first line of an escape from \x80 to \xFF, or 0
+  int latin1_line; // the first line of a character from U+0080 to U+00FF, or 0
   int byte_line;   // the first line of a raw byte above 0x7F, or 0
 } Enc;
 
@@ -430,7 +430,7 @@ static void enc_check(const Enc *e) {
   // Perl would encode each raw byte again as a Latin-1 character.
   if (e->wide && e->byte_line) cow_error(e->byte_line, "unsupported byte beside a wide character");
   // Perl would print a lone byte, which is no UTF-8.
-  if (!e->wide && e->latin1_line) cow_error(e->latin1_line, "unsupported escape in cowfile");
+  if (!e->wide && e->latin1_line) cow_error(e->latin1_line, "unsupported character U+0080-U+00FF");
 }
 
 /* A scalar that a cowfile preamble sets ($extra, $eye1, $x, ...). */
@@ -565,6 +565,33 @@ static size_t read_braced(const char *s, size_t n, int base, unsigned long *valu
   return digits + 2;
 }
 
+// Set by `use utf8;`: Perl then reads the rest of the source as UTF-8 characters, not bytes.
+static int source_utf8;
+
+/* Append one character of the source as it is; returns its length in bytes. */
+static size_t push_source(Buf *out, Enc *enc, const char *s, size_t n, int lineno) {
+  unsigned char c = (unsigned char)s[0];
+  if (c < 0x80) {
+    buf_push(out, (char)c);
+    return 1;
+  }
+  if (!source_utf8) {
+    if (!enc->byte_line) enc->byte_line = lineno;
+    buf_push(out, (char)c);
+    return 1;
+  }
+  unsigned cp;
+  size_t len = wu_decode(s, n, 0, &cp);
+  if (len == 1) cow_error(lineno, "malformed UTF-8 in cowfile");
+  if (cp > 0xFF) {
+    enc->wide = 1;
+  } else if (!enc->latin1_line) {
+    enc->latin1_line = lineno;
+  }
+  buf_append(out, s, len);
+  return len;
+}
+
 /* The escape after a backslash, as perlop lists them for a double-quoted string.
  * Returns its length after the backslash.
  */
@@ -617,9 +644,7 @@ static size_t read_escape(Buf *out, Enc *enc, const char *s, size_t n, int linen
     break; // these change the case of what follows
   default:
     // Any other character stands for itself, a letter as much as a newline.
-    if ((unsigned char)e >= 0x80 && !enc->byte_line) enc->byte_line = lineno;
-    buf_push(out, e);
-    return 1;
+    return push_source(out, enc, s, n, lineno);
   }
   cow_error(lineno, "unsupported escape in cowfile");
   return 0;
@@ -656,24 +681,36 @@ static void interpolate(Buf *out, Enc *enc, const char *line, size_t n, int line
     } else if (c == '@' && i + 1 < n && at_interpolates(line[i + 1])) {
       cow_error(lineno, "unescaped @ in cowfile");
     } else {
-      if ((unsigned char)c >= 0x80 && !enc->byte_line) enc->byte_line = lineno;
-      buf_push(out, c);
-      i++;
+      i += push_source(out, enc, line + i, n - i, lineno);
     }
   }
 }
 
-/* A double-quoted literal on one line, interpolated; NULL if none starts at *p. */
+/* A single-quoted heredoc: no interpolation, and a backslash is text too. */
+static void append_literal(Buf *out, Enc *enc, const char *line, size_t n, int lineno) {
+  for (size_t i = 0; i < n;) i += push_source(out, enc, line + i, n - i, lineno);
+}
+
+/* A literal on one line, '...' or an interpolated "..."; NULL if none starts at *p. */
 static char *match_string(const char **p, Enc *enc, int lineno) {
-  if (**p != '"') return NULL;
+  char quote = **p;
+  if (quote != '"' && quote != '\'') return NULL;
   const char *start = *p + 1, *end = start;
-  while (*end != '\0' && *end != '\n' && *end != '"')
+  while (*end != '\0' && *end != '\n' && *end != quote)
     end += (end[0] == '\\' && end[1] != '\0' && end[1] != '\n') ? 2 : 1;
-  if (*end != '"') return NULL;
+  if (*end != quote) return NULL;
   Buf b = {0};
   buf_append(&b, "", 0);
   *enc = (Enc){0};
-  interpolate(&b, enc, start, (size_t)(end - start), lineno);
+  if (quote == '"') {
+    interpolate(&b, enc, start, (size_t)(end - start), lineno);
+  } else {
+    // Only \\ and \' are escapes in single quotes.
+    for (const char *q = start; q < end;) {
+      if (q[0] == '\\' && (q[1] == '\\' || q[1] == '\'')) q++;
+      q += push_source(&b, enc, q, (size_t)(end - q), lineno);
+    }
+  }
   *p = end + 1;
   return b.p;
 }
@@ -710,8 +747,39 @@ refuse:
   return 0;
 }
 
+/* A condition on $eyes: ($eyes), ($eyes eq "..."), or ($eyes ne "...").
+ * Returns whether it holds, or -1 if none starts at *p.
+ */
+static int match_condition(const char **p, int lineno) {
+  const char *r = skip_ws(*p);
+  if (!match_lit(&r, "(")) return -1;
+  r = skip_ws(r);
+  if (!match_lit(&r, "$eyes")) return -1;
+  r = skip_ws(r);
+  int holds;
+  if (match_lit(&r, ")")) {
+    // Intended fix: Perl takes "0" as false too, which drops the eye that `-e 0` asks for.
+    holds = eyes[0] != '\0';
+  } else {
+    int negated = match_lit(&r, "ne");
+    if (!negated && !match_lit(&r, "eq")) return -1;
+    r = skip_ws(r);
+    Enc want_enc;
+    char *want = match_string(&r, &want_enc, lineno);
+    if (!want) return -1;
+    // Equal bytes are equal characters only in plain text.
+    int plain = enc_plain(&eyes_enc) && enc_plain(&want_enc);
+    holds = (strcmp(eyes, want) == 0) != negated;
+    free(want);
+    r = skip_ws(r);
+    if (!plain || !match_lit(&r, ")")) return -1;
+  }
+  *p = r;
+  return holds;
+}
+
 /* The rest of `$<name> = ...`: chop($eyes); substr($eyes, <n>, 1); or a literal,
- * which for $eyes may carry `unless ($eyes)` or `if ($eyes eq "<literal>")`.
+ * which for $eyes may carry `if` or `unless` and a condition.
  * chop, substr and eq count codepoints and compare bytes, which holds for plain text only.
  */
 static int parse_assign(const char *name, const char *r, int lineno) {
@@ -741,25 +809,13 @@ static int parse_assign(const char *name, const char *r, int lineno) {
   if (!lit) return 0;
   r = skip_ws(r);
   int take = 1;
-  if (to_eyes && match_lit(&r, "unless")) {
-    r = skip_ws(r);
-    if (!match_lit(&r, "($eyes)")) goto refuse;
-    take = eyes[0] == '\0';
-  } else if (to_eyes && match_lit(&r, "if")) {
-    r = skip_ws(r);
-    if (!match_lit(&r, "($eyes")) goto refuse;
-    r = skip_ws(r);
-    if (!match_lit(&r, "eq")) goto refuse;
-    r = skip_ws(r);
-    Enc want_enc;
-    char *want = match_string(&r, &want_enc, lineno);
-    if (!want) goto refuse;
-    int plain = enc_plain(&eyes_enc) && enc_plain(&want_enc);
-    take = strcmp(eyes, want) == 0;
-    free(want);
-    if (!plain) goto refuse;
-    r = skip_ws(r);
-    if (!match_lit(&r, ")")) goto refuse;
+  if (to_eyes) {
+    int unless = match_lit(&r, "unless");
+    if (unless || match_lit(&r, "if")) {
+      int holds = match_condition(&r, lineno);
+      if (holds < 0) goto refuse;
+      take = holds != unless;
+    }
   }
   if (!match_lit(&r, ";") || !end_of_stmt(r)) goto refuse;
   if (take) {
@@ -773,9 +829,19 @@ refuse:
   return 0;
 }
 
-/* Parse one preamble statement, `$<name> = ...` or `$<name> .= ...`; returns 1 if recognized. */
+/* Parse one preamble statement: `use utf8;`, `$<name> = ...` or `$<name> .= ...`.
+ * Returns 1 if recognized.
+ */
 static int parse_preamble_stmt(const char *line, int lineno) {
   const char *p = skip_ws(line);
+  if (match_lit(&p, "use")) {
+    const char *q = skip_ws(p);
+    if (q == p || !match_lit(&q, "utf8")) return 0;
+    q = skip_ws(q);
+    if (!match_lit(&q, ";") || !end_of_stmt(q)) return 0;
+    source_utf8 = 1;
+    return 1;
+  }
   if (!match_lit(&p, "$")) return 0;
   char *name = match_ident(&p);
   if (!name || strcmp(name, "the_cow") == 0) {
@@ -807,6 +873,7 @@ static char *parse_cow(const char *raw, size_t raw_len) {
   char *term = NULL;
   size_t term_len = 0;
   enum { PREAMBLE, BODY, AFTER } state = PREAMBLE;
+  int literal = 0; // a heredoc under a single-quoted terminator
   int lineno = 0;
   size_t i = 0;
   while (i <= n) {
@@ -822,7 +889,11 @@ static char *parse_cow(const char *raw, size_t raw_len) {
       if (line_len == term_len && strncmp(line, term, term_len) == 0) {
         state = AFTER;
       } else {
-        interpolate(&out, &enc, line, full_len, lineno);
+        if (literal) {
+          append_literal(&out, &enc, line, full_len, lineno);
+        } else {
+          interpolate(&out, &enc, line, full_len, lineno);
+        }
       }
     } else {
       const char *p = skip_ws(line);
@@ -838,12 +909,14 @@ static char *parse_cow(const char *raw, size_t raw_len) {
           if (!match_lit(&q, "=")) cow_error(lineno, "unsupported cowfile construct");
           q = skip_ws(q);
           if (!match_lit(&q, "<<")) cow_error(lineno, "unsupported cowfile construct");
-          q = skip_ws(q);
-          int quoted = (*q == '"');
-          if (quoted) q++;
+          // Perl allows a space after << only before a quoted terminator.
+          const char *after = skip_ws(q);
+          char quote = (*after == '"' || *after == '\'') ? *after : '\0';
+          if (quote) q = after + 1;
           char *t = match_ident(&q);
           if (!t) cow_error(lineno, "unsupported heredoc terminator");
-          if (quoted && !match_lit(&q, "\"")) cow_error(lineno, "unsupported heredoc terminator");
+          if (quote && *q++ != quote) cow_error(lineno, "unsupported heredoc terminator");
+          literal = quote == '\'';
           q = skip_ws(q);
           match_lit(&q, ";"); // sheep.cow omits the semicolon
           if (!end_of_stmt(q)) cow_error(lineno, "unsupported cowfile construct");
@@ -1168,7 +1241,7 @@ int main(int argc, char **argv) {
   tongue = cluster_prefix(o.T, 2);
   long columns = numify(o.W);
 
-  // Intended fix: `unless ($ARGV[0])` makes a first argument of "" or "0" falsy in the reference;
+  // Intended fix: the reference tests `unless ($ARGV[0])`, where Perl takes "" and "0" as false;
   // it then waits on stdin, while here any remaining argument selects the argument message.
   List raw = {0};
   int use_args = rest < argc;

@@ -62,7 +62,10 @@ The following behaviors of the reference are bugs with no value to preserve and 
   The reference instead feeds `Text::Wrap` a negative regex quantifier;
   it then returns its argument count, so that the message becomes `3`.
 - Any remaining argument selects the argument message.
-  The reference instead tests `unless ($ARGV[0])`, so `cowsay 0` and `cowsay ""` wait on stdin.
+  The reference instead tests `unless ($ARGV[0])`, and Perl takes `"0"` and `""` as false,
+  so `cowsay 0` and `cowsay ""` wait on stdin.
+- A cowfile's `($eyes)` is false only for an empty `$eyes`.
+  Perl takes `"0"` as false too, so the reference shows the default `..` for `cowsay -e 0 -f small`.
 - `-f` with a missing path containing `/` reports `Could not find ... cowfile!` and exits 2.
   The reference instead runs `do $full` unchecked, prints the balloon with no cow, and exits 0.
 - A usage error exits with `EX_USAGE` (64) rather than the reference's 255;
@@ -73,12 +76,12 @@ The following behaviors of the reference are bugs with no value to preserve and 
   The reference counts those bytes as text, so the balloon widens by the length of the sequence;
   the rest of the message also loses its colour at the first break.
 - A cow with a character above U+00FF prints with no warning.
-  The reference also prints `Wide character in print` on stderr.
+  Perl also prints `Wide character in print` on stderr for it.
 
 ### Outside the specification
 
 - `--help` and `--version`, whose Getopt::Std output embeds the host Perl version.
-- Malformed cowfiles: the reference reports a Perl error; this implementation reports its own.
+- Malformed cowfiles: Perl reports its own error, and so does this implementation.
 - `-W` values that are not a decimal integer with optional sign; the leading integer prefix is used.
 
 ## Display width
@@ -136,11 +139,13 @@ $the_cow = <<EOC;
 ```
 
 The terminator may be quoted as `<<"EOC"`, and the semicolon may be left out, as `sheep.cow` does.
+Under `<<'EOC'` the body is text as it stands: nothing interpolates, and a backslash is text too.
+A space may follow `<<` only before a quoted terminator, as in Perl.
 Once the terminator line closes the heredoc, only comments and blank lines may follow.
 A `#` comment may end any statement, the heredoc line included.
 A CR before an LF is dropped anywhere in the file, as Perl drops it, so CRLF line ends read as LF.
 
-The assignments before it are these, each on one line:
+The statements before it are `use utf8;` and the assignments below, each on one line.
 
 - `$var = "...";` sets a variable of any name but `the_cow`, as converted cowfiles do:
   `$x = "\e[49m  ";` and `$t = "$thoughts ";`.
@@ -150,11 +155,17 @@ The assignments before it are these, each on one line:
 - `$var = substr($eyes, 0, 1);` copies the character at that position instead, as `clawd.cow` does.
 - `$var .= ($other x 2);` appends a variable twice, as `three-eyes.cow` does to `$eyes`.
 - `$eyes = "..." unless ($eyes);` fills in a default, as `small.cow` does.
+  Only an empty `$eyes` is false here, one of the intended fixes.
 - `$eyes = "..." if ($eyes eq "...");` replaces one value with another;
   `clawd.cow` blanks the default `oo` that way, so its eye cells stay plain until `-e` fills them.
+  `if` and `unless` each take `($eyes)`, `($eyes eq "...")` or `($eyes ne "...")`.
 
 A literal `"..."` follows the rules of the heredoc body below, with `\"` for a quote.
 Perl can run code from inside one, as in `"@{[ ... ]}"`, and those rules refuse every such form.
+A literal `'...'` interpolates nothing, and its only escapes are `\\` and `\'`.
+
+`use utf8;` makes Perl read the rest of the file as UTF-8 characters rather than bytes.
+Malformed UTF-8 is then refused.
 
 Inside the heredoc body:
 
@@ -182,4 +193,5 @@ So is `\N{name}`, and a code of 0, of a surrogate, or past U+10FFFF.
 
 Perl prints a cow with a character above U+00FF as UTF-8, and so does this implementation.
 Perl then encodes each raw byte above 0x7F once more, so such a byte in that cow is refused.
-Without that character, Perl prints `\x80` to `\xFF` as a lone byte, and the escape is refused.
+Without that character, Perl prints U+0080 to U+00FF as a lone byte, so that character is refused.
+It comes from an escape such as `\xA0`, or from the source under `use utf8;`.

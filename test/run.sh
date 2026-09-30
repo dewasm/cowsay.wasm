@@ -373,7 +373,7 @@ t n-empty '' -n
 
 section arguments
 # Intended fix: any remaining argument selects the argument message.
-# The reference treats a first argument of "0" or "" as false and reads stdin.
+# The reference tests `unless ($ARGV[0])`, where Perl takes "0" and "" as false, and reads stdin.
 fixed arg-zero 0 $'not this\n' 0 is a message
 fixed arg-empty-first 0 $'not this\n' '' still a message
 t arg-space ' ' ' '
@@ -403,6 +403,9 @@ for cow in cows/*.cow; do
 done
 t cow-suffix '' -f default.cow moo
 t cow-small-empty-eyes '' -e '' -f small moo
+# Intended fix: `-e 0` keeps its eye.
+# Perl takes "0" as false, so the reference fills in the default.
+fixed cow-small-zero-eyes 0 '' -e 0 -f small moo
 t cow-three-eyes-e '' -e ab -f three-eyes moo
 t cow-udder-e '' -e ab -f udder moo
 t cow-clawd-eyes '' -e '><' -f clawd moo
@@ -489,7 +492,7 @@ refused() { # <name> <body-line> <message>
   refused escape-octal-unbraced '\o1' 'unsupported escape in cowfile'
   refused escape-hex-junk '\x{zz}' 'unsupported escape in cowfile'
   # Perl would print a lone byte for \xA0, or encode the raw é once more.
-  refused escape-latin1-alone '\xA0' 'unsupported escape in cowfile'
+  refused escape-latin1-alone '\xA0' 'unsupported character U+0080-U+00FF'
   refused escape-byte-beside-wide 'é\x{263A}' 'unsupported byte beside a wide character'
 }
 
@@ -531,7 +534,7 @@ cow_refused() { # <name> <line-number> <message> <line>...
   cow_case assign-escapes-wide '$x = "\t\x41\xA0";' '$y = "\x{263A}";' \
     '$the_cow = <<EOC;' '$x$y' 'EOC'
   cow_refused escape 1 'unsupported escape in cowfile' '$x = "\Ua";' '$the_cow = <<EOC;' 'EOC'
-  cow_refused latin1-unused-wide 1 'unsupported escape in cowfile' \
+  cow_refused latin1-unused-wide 1 'unsupported character U+0080-U+00FF' \
     '$x = "\xA0";' '$y = "\x{263A}";' '$the_cow = <<EOC;' '$x' 'EOC'
   cow_refused code 1 'unescaped @ in cowfile' '$x = "@{[ 1 ]}";' '$the_cow = <<EOC;' 'EOC'
   cow_refused code-in-idiom 1 'unescaped @ in cowfile' \
@@ -544,7 +547,21 @@ cow_refused() { # <name> <line-number> <message> <line>...
   cow_refused no-semicolon 1 'unsupported cowfile construct' '$x = "a"' '$the_cow = <<EOC;' 'EOC'
   cow_refused append-unknown 1 'unsupported cowfile construct' \
     '$y .= "a";' '$the_cow = <<EOC;' 'EOC'
-  cow_refused single-quoted 1 'unsupported cowfile construct' "\$x = 'a';" '$the_cow = <<EOC;' 'EOC'
+  # Single quotes: only \\ and \' are escapes, and nothing interpolates.
+  cow_case single-quoted "\$x = 'a\\\\b\\'c\\n\$d@e';" '$the_cow = <<EOC;' '$x' 'EOC'
+  cow_case unless-ne "\$eyes = '..' unless (\$eyes ne 'oo');" '$the_cow = <<EOC;' '$eyes' 'EOC'
+  cow_case if-ne '$eyes = ".." if ($eyes ne "oo");' '$the_cow = <<EOC;' '$eyes' 'EOC'
+  # use utf8: the source is UTF-8 characters, so a character above U+00FF makes the cow UTF-8.
+  cow_case use-utf8 'use utf8; # characters' '$x = "é";' '$the_cow = <<EOC;' '$x─' 'EOC'
+  cow_refused utf8-latin1 3 'unsupported character U+0080-U+00FF' \
+    'use utf8;' '$the_cow = <<EOC;' 'é' 'EOC'
+  cow_refused utf8-malformed 3 'malformed UTF-8 in cowfile' \
+    'use utf8;' '$the_cow = <<EOC;' $'\xff' 'EOC'
+  # <<'EOC': no interpolation, and a backslash is text too.
+  cow_case literal-heredoc "\$the_cow = <<'EOC';" 'a\\b\$x\n$thoughts @y' 'EOC'
+  cow_case literal-heredoc-space "\$the_cow = << 'EOC';" 'x' 'EOC'
+  cow_case quoted-heredoc-space '$the_cow = << "EOC";' '$thoughts' 'EOC'
+  cow_refused bare-heredoc-space 1 'unsupported heredoc terminator' '$the_cow = << EOC;' 'x' 'EOC'
   # Perl drops a CR before an LF anywhere in the source, and keeps a lone CR.
   cow_case crlf $'# a comment\r' $'$x = "a"; # set\r' $'$the_cow = <<EOC;\r' $'$x $thoughts\\\r' \
     $'b\r' $'EOC\r'
@@ -594,8 +611,8 @@ submodule_case cowsay-org-cowsay fox
 submodule_case cowsay-org-cowsay kiss
 submodule_case cowsay-org-cowsay llama
 submodule_case cowsay-org-cowsay mech-and-cow
-# Single quotes and `ne`, outside the grammar.
-submodule_refused cowsay-org-cowsay sus 4 'unsupported cowfile construct'
+# Single quotes and `ne`.
+submodule_case cowsay-org-cowsay sus
 
 # phmajerus-cowfiles: color and Unicode, as \x1B, \x{...} and \xA0 beside them.
 submodule_case phmajerus-cowfiles alexkidd
@@ -609,7 +626,8 @@ submodule_case mstill3-cowsay-files bird-stork
 submodule_case mstill3-cowsay-files chopper
 # Outside the grammar.
 submodule_refused mstill3-cowsay-files griffin 9 'unknown variable in cowfile'
-submodule_refused mstill3-cowsay-files motivational-whale 5 'unsupported heredoc terminator'
+submodule_refused mstill3-cowsay-files motivational-whale 19 \
+  'unsupported text after heredoc terminator'
 submodule_refused mstill3-cowsay-files snail 12 'unescaped @ in cowfile'
 
 section usage
