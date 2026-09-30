@@ -37,7 +37,7 @@ sub write_case {
 my $n = 0;
 for (1 .. 150) {
   my @args;
-  # Widths below 2 and a first word of "0" are deliberate fixes, so they diverge from the reference.
+  # Widths below 2 and a first word of "0" are intended fixes, so they diverge from the reference.
   # The fixed cases in run.sh cover them; the fuzz stays inside the specification.
   push @args, '-W', 2 + int(rand(88)) if rand() < 0.5;
   push @args, $flagpool[int(rand(@flagpool))] if rand() < 0.3;

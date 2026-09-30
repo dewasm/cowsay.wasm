@@ -7,36 +7,44 @@ This file states the specification, while `run.sh` enforces it.
 ## Test suite
 
 Run it with `make check`, or one mode at a time with `make check-native` and `make check-wasm`.
-`COWSAY_TEST_MODE=wasm` selects `cowsay.wasm` under wasmtime; the default runs `cowsay-native`.
+`COWSAY_TEST_MODE=wasm` selects `cowsay.wasm` under wasmtime; the default is `cowsay-native`.
 
-Each case compares all three channels against the reference.
-To do that it runs this implementation twice: with `COWPATH` pointing at `cows/`, then without it.
-Those two runs cover the real-filesystem lookup and the embedded cowfiles respectively.
+Each case compares stdout, stderr and the exit code against the reference.
+It runs our binary twice: with `COWPATH` set to `cows/`, then without it.
+The first run reads cowfiles from the filesystem, and the second uses the embedded ones.
 A case whose output names the cowfile directory, such as `-l`, skips the embedded run.
-The suite clears `LANG`, `LC_ALL`, `LC_CTYPE` and `COWSAY_AMBIGUOUS_WIDTH` first;
-a wasm run sees no environment, so a native run must not read the machine's.
-The width cases hand in what they need one at a time.
+
+The suite clears `LANG`, `LC_ALL`, `LC_CTYPE` and `COWSAY_AMBIGUOUS_WIDTH`.
+A wasm run sees no environment, so a native run must not read the machine's.
+A width case sets the ones it tests.
+
+Fuzz cases avoid the intended fixes, where the output differs from the reference:
+a width below 2, and a first message word `0`.
+The snapshots cover those.
+
+`submodules/` holds repositories of cowfiles as submodules, each at a fixed commit.
+The suite also tests some of their cowfiles, and each one must match the reference or be refused.
+The reference runs a cowfile with Perl `do`, so only cowfiles our parser accepts reach it.
+
+The suite reads these files, with paths relative to `test/`:
 
 | Path | What it holds |
 | --- | --- |
-| `reference/cowsay` | cowsay 3.03 unmodified, the reference every differential case runs against |
-| `fixed/` | snapshots of the deliberate fixes, which diverge from the reference on purpose |
+| `reference/cowsay` | cowsay 3.03 unmodified, the reference for every differential case |
+| `fixed/` | snapshots of the intended fixes, which differ from the reference |
 | `width/` | snapshots of non-ASCII width, which the byte-based reference cannot define |
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
-| `../ucd/` | the UCD files as published; the tables and the break test are read from there |
-
-The fuzz generator stays inside the specification.
-It therefore emits neither a width below 2 nor a first message word of `0`;
-those are deliberate fixes, and the snapshot cases already cover them.
+| `../ucd/` | the UCD files as published, read for the tables and the break test |
+| `submodules/` | repositories of cowfiles, each a submodule at a fixed commit |
 
 ## Output specification
 
 For ASCII input, stdout, stderr and the exit code are identical to the reference.
 That reference runs under a modern Perl, meaning `Text::Wrap` 2018.6 or later.
-The only exceptions are the deliberate fixes below, which snapshot files under `fixed/` pin instead.
+The only exceptions are the intended fixes below, which snapshot files under `fixed/` pin instead.
 
-The remaining behaviors of the original are part of the specification too, reproduced deliberately:
+The remaining behaviors of the original are part of the specification too, reproduced intentionally:
 
 - `-l` wraps the cowfile list at 76 columns, because the original lists before applying `-W`.
 - A missing cowfile exits with status 2, the `ENOENT` that Perl's `die` picks up from the file test.
@@ -46,7 +54,7 @@ The remaining behaviors of the original are part of the specification too, repro
 Exit codes: 0 on success, 1 for a rejected cowfile, 2 for a missing cowfile, 64 for a usage error.
 All of them are representable under WASI preview 1's [0..126) restriction.
 
-### Deliberate fixes
+### Intended fixes
 
 The following behaviors of the reference are bugs with no value to preserve and are fixed here:
 
@@ -127,23 +135,29 @@ $the_cow = <<EOC;
 
 The terminator may be quoted as `<<"EOC"`, and the semicolon may be left out, as `sheep.cow` does.
 Once the terminator line closes the heredoc, only comments and blank lines may follow.
+A `#` comment may end any statement, the heredoc line included.
 
-The assignments before it are the eye idioms that the shipped cowfiles use:
+The assignments before it are these, each on one line:
 
+- `$var = "...";` sets a variable of any name but `the_cow`, as converted cowfiles do:
+  `$x = "\e[49m  ";` and `$t = "$thoughts ";`.
+  Setting `$eyes`, `$tongue` or `$thoughts` changes what the heredoc reads.
+- `$var .= "...";` appends to a variable that has a value.
 - `$var = chop($eyes);` moves the last character of `$eyes` into a variable of any other name.
 - `$var = substr($eyes, 0, 1);` copies the character at that position instead, as `clawd.cow` does.
-- `$eyes .= ($var x 2);` appends that character twice, as `three-eyes.cow` does.
-- `$eyes .= " $var";` appends it after one or more spaces, as `udder.cow` does with one.
-- `$eyes .= "  ";` appends a literal, which `clawd.cow` uses to pad `$eyes` out to two characters.
+- `$var .= ($other x 2);` appends a variable twice, as `three-eyes.cow` does to `$eyes`.
 - `$eyes = "..." unless ($eyes);` fills in a default, as `small.cow` does.
 - `$eyes = "..." if ($eyes eq "...");` replaces one value with another;
   `clawd.cow` blanks the default `oo` that way, so its eye cells stay plain until `-e` fills them.
+
+A literal `"..."` follows the rules of the heredoc body below, with `\"` for a quote.
+Perl can run code from inside one, as in `"@{[ ... ]}"`, and those rules refuse every such form.
 
 Inside the heredoc body:
 
 - `$thoughts`, `$eyes`, `$tongue`, and any variable from the assignments above, interpolate.
   The `${name}` form works as well.
-- The escapes are `\\`, `\$`, `\@` and `\e`, that last one being the ESC `clawd.cow` colors with.
+- The escapes are `\\`, `\$`, `\@`, `\"` and `\e`, the ESC that `clawd.cow` colors with.
 - An unknown `$name` is refused rather than interpolated.
   So is a `$` that no name follows: Perl reads `$?` or `$/` as a special variable,
   and skips spaces to find a name, so `$ /` means `$/` too.

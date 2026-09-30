@@ -23,6 +23,9 @@ $ echo moo | wasmtime run cowsay.wasm
 
 ## Building
 
+The tests read a third-party cowfile collection from a submodule.
+Run `git submodule update --init` once after cloning.
+
 ```console
 $ make               # cowsay.wasm, needs WASI_SDK_PATH and optionally wasm-opt
 $ make cowsay-native # host binary, same behavior, used by the tests
@@ -30,6 +33,7 @@ $ make check         # the differential test suite in both modes
 $ make check-native  # only the host binary, against the vendored reference
 $ make check-wasm    # only cowsay.wasm, under wasmtime
 $ make check-size    # cowsay.wasm is under the 100 kB stated above
+$ make check-cowsay-files # every cowfile of a third-party collection, native only
 $ make lint          # shellcheck the scripts, and compile-check the Perl generator
 $ make update-ucd    # the only networked step: refresh ucd/ at UNICODE_VERSION
 ```
@@ -37,7 +41,7 @@ $ make update-ucd    # the only networked step: refresh ucd/ at UNICODE_VERSION
 ## Behavior
 
 For ASCII input, stdout, stderr and the exit code are identical to cowsay 3.03 under a modern Perl.
-The only exceptions are five deliberate fixes for bugs of the original.
+The only exceptions are five intended fixes for bugs of the original.
 Non-ASCII input, meanwhile, is measured in terminal columns rather than bytes.
 Grapheme clusters stay whole, East Asian and emoji characters take two columns,
 and an ANSI colour survives a wrapped line.
