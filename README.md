@@ -58,15 +58,15 @@ They pass through to the output, so a pipe or a file gets them too.
 
 ![cowsay -f clawd, as a terminal renders it](docs/clawd.svg)
 
-Setting `COWPATH` switches to real directories instead, under the original's search rules.
-Those look for `dir/name` first, then for `dir/name.cow`.
-Under a wasm runtime, such a directory needs a preopen:
+`-f` takes a file of that name first.
+Otherwise it searches the built-in cowfiles, then each directory of `COWPATH`, as cowsay 3.8.4 does.
+Each one is searched for `name`, then for `name.cow`.
+`COWSAY_ONLY_COWPATH=1` leaves the built-in cowfiles out.
+Under a wasm runtime, a directory needs a preopen:
 
 ```console
-$ wasmtime run --dir cows --env COWPATH=cows cowsay.wasm -f moose
+$ wasmtime run --dir my-cows --env COWPATH=my-cows cowsay.wasm -f my-cow
 ```
-
-A `-f` value containing `/` always reads the real filesystem.
 
 A cowfile is a Perl script, but this implementation reads a restricted grammar of it instead.
 [test/README.md](test/README.md) states that grammar in full, and anything outside it is refused.

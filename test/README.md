@@ -48,8 +48,10 @@ The remaining behaviors of the original are part of the specification too, repro
 - `-l` prints the cowfile names alone, one per line, when stdout is no terminal.
   On a terminal it lists each cowpath directory that holds a cowfile, and skips the others.
   That list wraps at 76 columns, since the reference lists before it applies `-W`.
+- `-f` reads a file of that name if there is one.
+  Otherwise it searches the cowpath: the built-in cowfiles, then each directory of `COWPATH`.
+  `COWSAY_ONLY_COWPATH`, when it equals 1 as a Perl number, leaves the built-in cowfiles out.
 - A missing cowfile exits with status 2, the `ENOENT` that Perl's `die` picks up from the file test.
-  A path that contains `/` is no exception.
 - `-n` with a message on the command line prints the help and exits with status 1.
 - Face flags override each other in a fixed order (`-y -b` shows `==`), and all override `-e`/`-T`.
 - An unknown option warns and parsing continues.
@@ -72,6 +74,9 @@ The following behaviors of the reference are bugs with no value to preserve and 
   Perl takes `"0"` as false too, so the reference shows the default `..` for `cowsay -e 0 -f small`.
 - The help names this build beside the cowsay it implements: `version 3.8.4 (cowsay.wasm 0.2.0)`.
   It also leaves out `-r` and `-C`, which this build does not have.
+- A relative path in `-f`, such as `-f cows/tux.cow`, reads that file.
+  The reference loads it with `do`, which searches `@INC` unless the path starts with `./` or `../`,
+  so it prints the balloon with no cow.
 - An ANSI escape sequence counts as no columns, and an open colour carries across a wrapped line.
   The reference counts those bytes as text, so the balloon widens by the length of the sequence;
   the rest of the message also loses its colour at the first break.
@@ -83,6 +88,8 @@ The following behaviors of the reference are bugs with no value to preserve and 
 - `--help` and `--version`, whose Getopt::Std output embeds the host Perl version.
 - `-r` and `-C`, which this build does not have.
 - A subdirectory of a cowpath directory, whose cowfiles the reference names as `dir/name`.
+- The built-in cowfiles in the `-l` list on a terminal: the reference names its own directory there.
+- A `COWSAY_ONLY_COWPATH` that only rounding makes 1, such as `1.0000000000000000001`.
 - Malformed cowfiles: Perl reports its own error, and so does this implementation.
 - `-W` values that are not a decimal integer with optional sign; the leading integer prefix is used.
 

@@ -8,7 +8,7 @@
 #
 # Every case runs our binary twice: with COWPATH pointing at cows/, then without it.
 # That covers the real-filesystem lookup and the embedded cows.
-# The reference always runs with COWPATH alone, which COWSAY_ONLY_COWPATH=1 asks for.
+# Both look up a cowfile in their own cowfiles first, then in COWPATH.
 # Cases marked "pathonly" skip the embedded run, since they read cowfiles outside cows/.
 #
 # COWSAY_TEST_MODE=wasm runs cowsay.wasm under wasmtime instead of cowsay-native.
@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.." || exit 1
 
 # Column widths depend on the environment, and a wasm run sees none of it.
 # A native run is given none either, and the width cases hand in what they need one at a time.
-unset LANG LC_ALL LC_CTYPE COWSAY_AMBIGUOUS_WIDTH
+unset LANG LC_ALL LC_CTYPE COWSAY_AMBIGUOUS_WIDTH COWSAY_ONLY_COWPATH
 ROOT=$PWD
 COWS=$ROOT/cows
 REF=$ROOT/test/submodules/cowsay-org-cowsay/bin/cowsay
@@ -67,7 +67,8 @@ trap 'rm -rf "$TMP"' EXIT
 
 # The binary under test runs from a copy named "cowsay" (or "cowthink").
 # The reference takes its program name and think mode from $0, and ours from argv[0].
-cp "$REF" "$TMP/cowthink"
+# A link keeps the reference's own cowfiles in reach: it finds them from its real path.
+ln -s "$REF" "$TMP/cowthink"
 if [ "$MODE" = wasm ]; then
   cp cowsay.wasm "$TMP/cowsay"
   cp cowsay.wasm "$TMP/cowthink.wasm"
@@ -162,21 +163,23 @@ run_ref() { # <think> <stdin-file> [args...]
   shift 2
   local script=$REF
   [ "$think" = 1 ] && script=$TMP/cowthink
-  COWSAY_ONLY_COWPATH=1 COWPATH=$COWS perl "$script" "$@" <"$in" >"$TMP/ref.out" \
-    2>"$TMP/ref.raw.err"
+  local case_env=() kv
+  for kv in $CASE_ENV; do case_env+=("$kv"); done
+  env ${case_env+"${case_env[@]}"} COWPATH="$COWS" perl "$script" "$@" \
+    <"$in" >"$TMP/ref.out" 2>"$TMP/ref.raw.err"
   echo $? >"$TMP/ref.code"
   # Intended fix: Perl warns when it prints a cow as UTF-8, and we print no such warning.
   grep -v '^Wide character in print at .* line [0-9]*\.$' "$TMP/ref.raw.err" >"$TMP/ref.err"
 }
 
-# WIDTH_ENV names the variables a width case wants handed to the binary, as NAME=VALUE words.
-WIDTH_ENV=
+# CASE_ENV names the variables a case hands to both runs, as NAME=VALUE words.
+CASE_ENV=
 
 run_ours() { # <think> <path|embedded> <stdin-file> [args...]
   local think=$1 cpmode=$2 in=$3
   shift 3
   local wasm_env=() native_env=() kv
-  for kv in $WIDTH_ENV; do
+  for kv in $CASE_ENV; do
     wasm_env+=(--env "$kv")
     native_env+=("$kv")
   done
@@ -284,6 +287,16 @@ fixed() { # <name> <expected-exit> <stdin-string> [args...]
   done
 }
 
+with_env() { # <NAME=VALUE...> -- <command> [args...]
+  local CASE_ENV=$CASE_ENV
+  while [ "$1" != -- ]; do
+    CASE_ENV="$CASE_ENV $1"
+    shift
+  done
+  shift
+  "$@"
+}
+
 # A cowfile refused with an error naming the line, never rendered.
 expect_refused() { # <label> <dir> <name> <line> <message>
   printf '%s\n' "cowsay: $2/$3.cow:$4: $5" >"$TMP/want.err"
@@ -323,6 +336,8 @@ finish() {
 # so the reference only sees what our parser accepted.
 all_of_submodule() { # <submodule>
   local dir cow name
+  # A collection reuses names of the built-in cowfiles, so it is searched alone.
+  local CASE_ENV="$CASE_ENV COWSAY_ONLY_COWPATH=1"
   dir=$(submodule_cows "$1")
   : >"$TMP/reasons"
   section "$1"
@@ -436,6 +451,32 @@ t cow-missing '' -f nosuch moo
 t cow-slash-missing '' -f /no/such/file.cow moo
 # Needs the real filesystem: without a preopen the wasm build cannot open the absolute path.
 t_pathonly cow-slash-path '' -f "$COWS/default.cow" moo
+# Intended fix: a relative path reads as a file (the reference's `do` searches @INC for it).
+# A wasm run sees no current directory, so only a native one takes this case.
+[ "$MODE" = native ] && fixed cow-relative-path 0 '' -f cows/default.cow moo
+
+section cowpath
+# COWPATH comes after the built-in cowfiles, or alone under COWSAY_ONLY_COWPATH=1.
+EXTRA=$TMP/extra
+mkdir "$EXTRA"
+# The single quotes keep the Perl text from the shell.
+# shellcheck disable=SC2016
+printf '$the_cow = <<EOC;\n  $thoughts another default\nEOC\n' >"$EXTRA/default.cow"
+# shellcheck disable=SC2016
+printf '$the_cow = <<EOC;\n  $thoughts extra\nEOC\n' >"$EXTRA/extra.cow"
+# clawd is built in here alone; beside the others, the reference lists it as well.
+cp cows/clawd.cow "$EXTRA/"
+COWS=$EXTRA t_pathonly cowpath-builtin-first '' -f default moo
+COWS=$EXTRA t_pathonly cowpath-after '' -f extra moo
+COWS=$EXTRA t_pathonly cowpath-list '' -l
+# Perl compares the variable with 1 as a number.
+for only in 1 1.0 01 1x; do
+  COWS=$EXTRA with_env "COWSAY_ONLY_COWPATH=$only" -- \
+    t_pathonly "cowpath-only-$only" '' -f default moo
+done
+COWS=$EXTRA with_env COWSAY_ONLY_COWPATH=2 -- t_pathonly cowpath-only-2 '' -f default moo
+COWS=$EXTRA with_env COWSAY_ONLY_COWPATH=1 -- t_pathonly cowpath-only-builtin '' -f tux moo
+COWS=$EXTRA with_env COWSAY_ONLY_COWPATH=1 -- t_pathonly cowpath-only-list '' -l
 
 section heredoc
 # Each case is a cowfile of one body line, found through a COWPATH of its own.
@@ -590,12 +631,15 @@ cow_refused() { # <name> <line-number> <message> <line>...
 
 section submodules
 # Cowfiles of the submodules under test/submodules; `make check-third-party-cows` runs all of them.
+# A collection reuses names of the built-in cowfiles, so it is searched alone.
 submodule_case() { # <submodule> <name>
-  COWS=$(submodule_cows "$1") t_pathonly "$1-$2" '' -f "$2" moo
+  COWS=$(submodule_cows "$1") with_env COWSAY_ONLY_COWPATH=1 -- \
+    t_pathonly "$1-$2" '' -f "$2" moo
 }
 
 submodule_refused() { # <submodule> <name> <line-number> <message>
-  expect_refused "$1-$2" "$(submodule_cows "$1")" "$2" "$3" "$4"
+  with_env COWSAY_ONLY_COWPATH=1 -- \
+    expect_refused "$1-$2" "$(submodule_cows "$1")" "$2" "$3" "$4"
 }
 
 # paulkaefer-cowsay-files: one cowfile for each shape the collection writes.
@@ -691,17 +735,6 @@ width_case() { # <name> <stdin-string> [args...]
   fi
 }
 
-width_env() { # <NAME=VALUE...> -- <name> <stdin-string> [args...]
-  local saved=$WIDTH_ENV
-  WIDTH_ENV=
-  while [ "$1" != -- ]; do
-    WIDTH_ENV="$WIDTH_ENV $1"
-    shift
-  done
-  shift
-  width_case "$@"
-  WIDTH_ENV=$saved
-}
 
 width_case latin '' 'héllo wörld, ça va très bien aujourdʼhui'
 width_case cjk '' 'こんにちは世界'
@@ -718,7 +751,8 @@ width_case tabs $'日本\tx\nab\tx\n' -n
 # East Asian Ambiguous is one column by default, two under a CJK locale;
 # the override settles it either way.
 width_case ambiguous-default '' '§§§ ±±± °°°'
-width_env LANG=ja_JP.UTF-8 -- ambiguous-locale '' '§§§ ±±± °°°'
-width_env LANG=ja_JP.UTF-8 COWSAY_AMBIGUOUS_WIDTH=1 -- ambiguous-override '' '§§§ ±±± °°°'
+with_env LANG=ja_JP.UTF-8 -- width_case ambiguous-locale '' '§§§ ±±± °°°'
+with_env LANG=ja_JP.UTF-8 COWSAY_AMBIGUOUS_WIDTH=1 -- \
+  width_case ambiguous-override '' '§§§ ±±± °°°'
 
 finish
