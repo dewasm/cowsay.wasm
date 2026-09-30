@@ -9,7 +9,6 @@
 
 #include "width.h"
 
-#include <stdio.h>
 #include <string.h>
 
 #include "unicode_tables.h"
@@ -20,16 +19,22 @@ void wu_set_ambiguous_wide(int wide) { ambiguous_wide = wide ? 1 : 0; }
 
 /* The property word of a codepoint; zero for everything the tables leave out. */
 static unsigned props_of(unsigned cp) {
-  size_t lo = 0, hi = sizeof unicode_ranges / sizeof unicode_ranges[0];
+  if (cp - HANGUL_FIRST < HANGUL_COUNT) {
+    unsigned gcb = (cp - HANGUL_FIRST) % HANGUL_T_COUNT ? GCB_LVT : GCB_LV;
+    return gcb | UWIDTH_WIDE << 4;
+  }
+  for (size_t k = 0; k < sizeof long_ranges / sizeof long_ranges[0]; k++)
+    if (cp - long_ranges[k].lo <= long_ranges[k].extra) return long_ranges[k].props;
+  size_t lo = 0, hi = sizeof short_ranges / sizeof short_ranges[0];
   while (lo < hi) {
     size_t mid = lo + (hi - lo) / 2;
-    const struct urange *r = &unicode_ranges[mid];
-    if (cp < r->lo) {
+    unsigned e = short_ranges[mid];
+    if (cp < SHORT_FIRST(e)) {
       hi = mid;
-    } else if (cp > r->lo + r->extra) {
+    } else if (cp > SHORT_FIRST(e) + SHORT_EXTRA(e)) {
       lo = mid + 1;
     } else {
-      return r->props;
+      return SHORT_WORD(e);
     }
   }
   return 0;
@@ -214,7 +219,8 @@ size_t wu_display_width(const char *s, size_t n) {
 
 /* ---------- select graphic rendition ---------- */
 
-/* The attributes worth carrying across a break; the numbers are their SGR codes. */
+/* The attributes worth carrying across a break; the numbers are their SGR codes.
+ * wu_sgr_render writes each set code as one digit. */
 static const struct {
   unsigned bit;
   int set;
@@ -308,19 +314,31 @@ void wu_sgr_scan(WuSgr *st, const char *s, size_t n) {
   }
 }
 
+/* Append s to out, keeping out NUL-terminated within cap. */
+static void append(char *out, size_t cap, size_t *len, const char *s) {
+  for (; *s && *len + 1 < cap; s++) out[(*len)++] = *s;
+  out[*len] = '\0';
+}
+
 void wu_sgr_render(const WuSgr *st, char *out, size_t cap) {
   out[0] = '\0';
   if (!wu_sgr_active(st)) return;
-  char params[128];
   size_t len = 0;
+  const char *sep = "\033[";
   for (size_t k = 0; k < sizeof attr_codes / sizeof attr_codes[0]; k++) {
     if (!(st->attrs & attr_codes[k].bit)) continue;
-    len += (size_t)snprintf(params + len, sizeof params - len, "%s%d",
-                            len ? ";" : "", attr_codes[k].set);
+    append(out, cap, &len, sep);
+    append(out, cap, &len, (char[]){(char)('0' + attr_codes[k].set), '\0'});
+    sep = ";";
   }
-  if (st->fg[0])
-    len += (size_t)snprintf(params + len, sizeof params - len, "%s%s", len ? ";" : "", st->fg);
-  if (st->bg[0])
-    len += (size_t)snprintf(params + len, sizeof params - len, "%s%s", len ? ";" : "", st->bg);
-  snprintf(out, cap, "\033[%sm", params);
+  if (st->fg[0]) {
+    append(out, cap, &len, sep);
+    append(out, cap, &len, st->fg);
+    sep = ";";
+  }
+  if (st->bg[0]) {
+    append(out, cap, &len, sep);
+    append(out, cap, &len, st->bg);
+  }
+  append(out, cap, &len, "m");
 }

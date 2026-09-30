@@ -96,8 +96,19 @@ sub word {
   my $p = shift // [0, 0, 0, 0, 0];
   return $p->[0] | ($p->[1] << 4) | ($p->[2] << 6) | ($p->[3] << 7) | ($p->[4] << 8);
 }
+
+# The Hangul syllables follow from their codepoint (Unicode 3.12), so width.c computes them:
+# every 28th one from U+AC00 is LV, the rest LVT, and all are wide.
+my ($HANGUL_FIRST, $HANGUL_COUNT, $HANGUL_T_COUNT) = (0xAC00, 11172, 28);
+for my $cp ($HANGUL_FIRST .. $HANGUL_FIRST + $HANGUL_COUNT - 1) {
+  my $gcb = ($cp - $HANGUL_FIRST) % $HANGUL_T_COUNT ? $GCB_ID{LVT} : $GCB_ID{LV};
+  word($props{$cp}) == word([$gcb, $WIDTH_ID{wide}, 0, 0, 0])
+    or die sprintf "gen-unicode-tables.pl: U+%04X breaks the Hangul syllable rule\n", $cp;
+}
+
 my @ranges;
 for my $cp (sort { $a <=> $b } keys %props) {
+  next if $cp >= $HANGUL_FIRST && $cp < $HANGUL_FIRST + $HANGUL_COUNT;
   my $w = word($props{$cp});
   next if $w == 0;
   if (@ranges && $ranges[-1][1] == $cp - 1 && $ranges[-1][2] == $w) {
@@ -114,7 +125,7 @@ print <<"HEADER";
 enum {
 HEADER
 printf "  GCB_%s = %d,\n", uc $GCB[$_], $_ for 0 .. $#GCB;
-print <<'HEADER';
+print <<"HEADER";
 };
 
 /* The remaining bits: width class, the two emoji properties, and Indic_Conjunct_Break for GB9c. */
@@ -128,26 +139,49 @@ enum { UWIDTH_NORMAL = 0, UWIDTH_WIDE = 1, UWIDTH_AMBIGUOUS = 2, UWIDTH_ZERO = 3
 enum { INCB_NONE = 0, INCB_CONSONANT = 1, INCB_EXTEND = 2, INCB_LINKER = 3 };
 
 /* Codepoints with no property of interest are absent; a lookup that misses reads as zero.
- * A range is its first codepoint, the count after it, and the property word,
- * packed into eight bytes. */
-struct urange {
+ * The Hangul syllables are absent too, since their properties follow from the codepoint.
+ * Every range is its first codepoint, the count after it, and its property word. */
+#define HANGUL_FIRST @{[sprintf "0x%04X", $HANGUL_FIRST]}
+#define HANGUL_COUNT $HANGUL_COUNT
+#define HANGUL_T_COUNT $HANGUL_T_COUNT
+
+/* A short range packs into one word: first codepoint << 11 | count << 5 | uprop_words index. */
+#define SHORT_FIRST(e) ((e) >> 11)
+#define SHORT_EXTRA(e) (((e) >> 5) & 0x3f)
+#define SHORT_WORD(e) (uprop_words[(e) & 0x1f])
+
+struct long_range {
   unsigned int lo;
   unsigned short extra;
   unsigned short props;
 };
 
 HEADER
-# A range longer than the count field holds is split, which costs a handful of entries.
-my @packed;
+# A range whose count fits six bits is short; the few longer ones go in a table of their own.
+# A long range beyond the 16-bit count field is split, which costs a handful of entries.
+my (@short, @long, %index, @words);
 for my $r (@ranges) {
   my ($lo, $hi, $w) = @$r;
+  if ($hi - $lo < 64) {
+    $index{$w} //= do { push @words, $w; $#words };
+    push @short, ($lo << 11) | (($hi - $lo) << 5) | $index{$w};
+    next;
+  }
   while ($lo <= $hi) {
     my $end = $hi - $lo > 0xffff ? $lo + 0xffff : $hi;
-    push @packed, [$lo, $end - $lo, $w];
+    push @long, [$lo, $end - $lo, $w];
     $lo = $end + 1;
   }
 }
-printf "static const struct urange unicode_ranges[] = {\n";
-printf "  { 0x%04X, %d, 0x%03X },\n", @$_ for @packed;
+@words <= 32 or die "gen-unicode-tables.pl: @{[scalar @words]} property words exceed 5 bits\n";
+printf "static const unsigned short uprop_words[] = {\n";
+printf "  0x%03X,\n", $_ for @words;
+printf "};\n\n";
+printf "static const unsigned int short_ranges[] = {\n";
+printf "  0x%08X,\n", $_ for @short;
+printf "};\n\n";
+printf "static const struct long_range long_ranges[] = {\n";
+printf "  { 0x%04X, %d, 0x%03X },\n", @$_ for @long;
 printf "};\n";
-printf STDERR "%d ranges\n", scalar @packed;
+printf STDERR "%d short ranges, %d long ranges, %d property words\n",
+  scalar @short, scalar @long, scalar @words;
