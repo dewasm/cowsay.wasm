@@ -33,7 +33,7 @@ The suite reads these files, with paths relative to `test/`:
 | Path | What it holds |
 | --- | --- |
 | `reference/cowsay` | cowsay 3.03 unmodified, the reference for every differential case |
-| `fixed/` | snapshots of the deliberate fixes, which differ from the reference |
+| `fixed/` | snapshots of the intended fixes, which differ from the reference |
 | `width/` | snapshots of non-ASCII width, which the byte-based reference cannot define |
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
@@ -44,9 +44,9 @@ The suite reads these files, with paths relative to `test/`:
 
 For ASCII input, stdout, stderr and the exit code are identical to the reference.
 That reference runs under a modern Perl, meaning `Text::Wrap` 2018.6 or later.
-The only exceptions are the deliberate fixes below, which snapshot files under `fixed/` pin instead.
+The only exceptions are the intended fixes below, which snapshot files under `fixed/` pin instead.
 
-The remaining behaviors of the original are part of the specification too, reproduced deliberately:
+The remaining behaviors of the original are part of the specification too, reproduced intentionally:
 
 - `-l` wraps the cowfile list at 76 columns, because the original lists before applying `-W`.
 - A missing cowfile exits with status 2, the `ENOENT` that Perl's `die` picks up from the file test.
@@ -56,7 +56,7 @@ The remaining behaviors of the original are part of the specification too, repro
 Exit codes: 0 on success, 1 for a rejected cowfile, 2 for a missing cowfile, 64 for a usage error.
 All of them are representable under WASI preview 1's [0..126) restriction.
 
-### Deliberate fixes
+### Intended fixes
 
 The following behaviors of the reference are bugs with no value to preserve and are fixed here:
 

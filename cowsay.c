@@ -1,7 +1,7 @@
 /*
  * cowsay.wasm: a C reimplementation of cowsay 3.03 (c) 1999-2000 Tony Monroe, for wasm32-wasip1.
  *
- * The output specification and the deliberate fixes are documented in test/README.md.
+ * The output specification and the intended fixes are documented in test/README.md.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -114,7 +114,7 @@ static int is_space(char c) {
 }
 
 static char *wrap_text(const char *t, size_t n, long *columns) {
-  // Deliberate fix: below two columns the reference feeds Text::Wrap a negative regex quantifier;
+  // Intended fix: below two columns the reference feeds Text::Wrap a negative regex quantifier;
   // it then returns its argument count, so the message becomes "3".
   // Any smaller width behaves as 2, silently, matching Text::Wrap's own stated minimum.
   if (*columns < 2) *columns = 2;
@@ -333,7 +333,7 @@ static char *tongue;
 static const char *thoughts;
 
 static void display_usage(void) {
-  // Deliberate fix: the reference exits 255 (Perl die), which WASI preview 1 cannot represent.
+  // Intended fix: the reference exits 255 (Perl die), which WASI preview 1 cannot represent.
   // This exits with EX_USAGE, and drops the stray trailing space from its usage text.
   fprintf(stderr,
       "cow{say,think} version " COWSAY_VERSION " (cowsay.wasm " COWSAY_WASM_VERSION "),"
@@ -729,7 +729,7 @@ static const struct embedded_cow *find_embedded(const char *name) {
 static char *get_cow(const char *f) {
   const char *cowpath = getenv("COWPATH");
   if (strchr(f, '/')) {
-    // Deliberate fix: the reference runs `do $full` unchecked: a missing path exits 0 with no cow.
+    // Intended fix: the reference runs `do $full` unchecked: a missing path exits 0 with no cow.
     // This reports it like any other missing cowfile.
     size_t n;
     char *data = read_file(f, &n);
@@ -996,7 +996,7 @@ int main(int argc, char **argv) {
   tongue = cluster_prefix(o.T, 2);
   long columns = numify(o.W);
 
-  // Deliberate fix: `unless ($ARGV[0])` makes a first argument of "" or "0" falsy in the reference;
+  // Intended fix: `unless ($ARGV[0])` makes a first argument of "" or "0" falsy in the reference;
   // it then waits on stdin, while here any remaining argument selects the argument message.
   List raw = {0};
   int use_args = rest < argc;

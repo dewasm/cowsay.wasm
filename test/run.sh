@@ -3,7 +3,7 @@
 # Differential test: our cowsay against the vendored reference, cowsay 3.03 under the host perl.
 # Every case compares stdout, stderr and the exit code.
 # Behaviors changed on purpose are pinned by snapshots under test/fixed/, via the fixed() helper.
-# test/README.md lists them under "Deliberate fixes".
+# test/README.md lists them under "Intended fixes".
 #
 # Every case runs our binary twice: with COWPATH pointing at cows/, then without it.
 # That covers the real-filesystem lookup and the embedded cows.
@@ -205,7 +205,7 @@ t_pathonly() { # <name> <stdin-string> [args...]
   report "$name" path "$@"
 }
 
-# A deliberate fix diverges from the reference on purpose, so snapshots pin it instead:
+# An intended fix diverges from the reference on purpose, so snapshots pin it instead:
 # test/fixed/<name>.out, and <name>.err when stderr is expected.
 fixed() { # <name> <expected-exit> <stdin-string> [args...]
   local name=$1 code=$2 stdin=$3
@@ -308,12 +308,12 @@ t huge-word-tail '' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa end
 t width-10 '' -W 10 abcdefghijklmnopqrstuv end
 t width-2 '' -W 2 hello there
 t width-attached '' -W10 abcdefghijklmnop
-# Deliberate fix: any width below 2 behaves as 2 (the reference makes the message "3").
+# Intended fix: any width below 2 behaves as 2 (the reference makes the message "3").
 fixed width-0 0 '' -W 0 tiny width
 fixed width-1 0 '' -W 1 tiny width
 fixed width-junk 0 '' -W abc tiny width
 fixed width-negative 0 '' -W -5 tiny width
-# Deliberate fix: an SGR sequence costs no columns, and a colour still open at a wrap is
+# Intended fix: an SGR sequence costs no columns, and a colour still open at a wrap is
 # reopened on the next line (the reference counts the escape bytes as text).
 fixed escape-width 0 '' $'\033[31mred\033[0m and plain'
 fixed escape-wrap 0 '' -W 24 $'\033[1;31mthis red sentence is long enough to wrap twice over\033[0m'
@@ -336,7 +336,7 @@ t n-multiline $'keep   these\n  lines as-is\n' -n
 t n-empty '' -n
 
 section arguments
-# Deliberate fix: any remaining argument selects the argument message.
+# Intended fix: any remaining argument selects the argument message.
 # The reference treats a first argument of "0" or "" as false and reads stdin.
 fixed arg-zero 0 $'not this\n' 0 is a message
 fixed arg-empty-first 0 $'not this\n' '' still a message
@@ -375,7 +375,7 @@ t cow-clawd-no-eyes '' -e '' -f clawd moo
 t cow-clawd-default-eyes '' -e oo -f clawd moo
 t cow-clawd-dead '' -d -f clawd moo
 t cow-missing '' -f nosuch moo
-# Deliberate fix: a missing path with a slash is an error (the reference exits 0 with no cow).
+# Intended fix: a missing path with a slash is an error (the reference exits 0 with no cow).
 fixed cow-slash-missing 2 '' -f /no/such/file.cow moo
 # Needs the real filesystem: without a preopen the wasm build cannot open the absolute path.
 t_pathonly cow-slash-path '' -f "$COWS/default.cow" moo
@@ -512,7 +512,7 @@ collection_refused golden-eagle 8 'unescaped $ in cowfile'
 collection_refused chiyo-chichi 1 'unsupported cowfile construct'
 
 section usage
-# Deliberate fix: usage exits with EX_USAGE (64) instead of the reference's 255.
+# Intended fix: usage exits with EX_USAGE (64) instead of the reference's 255.
 # The usage text also drops a stray trailing space.
 fixed usage-h 64 '' -h
 fixed usage-n-args 64 '' -n moo
