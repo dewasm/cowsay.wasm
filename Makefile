@@ -7,11 +7,11 @@ WASM_CFLAGS = $(CFLAGS) -Oz -flto -Wl,--strip-all
 COWS = $(sort $(wildcard cows/*.cow))
 SRC = cowsay.c width.c
 
-# The version tools/fetch-ucd.sh pulls into ucd/; the tables follow what is vendored there.
-UNICODE_VERSION = 18.0.0
-
 # The README promises a binary under 100 kB; check-size holds every build to it.
 WASM_SIZE_LIMIT = 100000
+
+# The version tools/fetch-ucd.sh pulls into ucd/; the tables follow what is vendored there.
+UNICODE_VERSION = 18.0.0
 UCD = ucd
 UCD_FILES = $(UCD)/EastAsianWidth.txt $(UCD)/DerivedCoreProperties.txt \
             $(UCD)/DerivedGeneralCategory.txt $(UCD)/emoji-data.txt \
