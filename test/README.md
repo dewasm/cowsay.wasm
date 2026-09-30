@@ -136,11 +136,13 @@ $the_cow = <<EOC;
 ```
 
 The terminator may be quoted as `<<"EOC"`, and the semicolon may be left out, as `sheep.cow` does.
+Under `<<'EOC'` the body is text as it stands: nothing interpolates, and a backslash is text too.
+A space may follow `<<` only before a quoted terminator, as in Perl.
 Once the terminator line closes the heredoc, only comments and blank lines may follow.
 A `#` comment may end any statement, the heredoc line included.
 A CR before an LF is dropped anywhere in the file, as Perl drops it, so CRLF line ends read as LF.
 
-The assignments before it are these, each on one line:
+The statements before it are `use utf8;` and the assignments below, each on one line.
 
 - `$var = "...";` sets a variable of any name but `the_cow`, as converted cowfiles do:
   `$x = "\e[49m  ";` and `$t = "$thoughts ";`.
@@ -150,11 +152,17 @@ The assignments before it are these, each on one line:
 - `$var = substr($eyes, 0, 1);` copies the character at that position instead, as `clawd.cow` does.
 - `$var .= ($other x 2);` appends a variable twice, as `three-eyes.cow` does to `$eyes`.
 - `$eyes = "..." unless ($eyes);` fills in a default, as `small.cow` does.
+  Perl's false strings are `""` and `"0"`.
 - `$eyes = "..." if ($eyes eq "...");` replaces one value with another;
   `clawd.cow` blanks the default `oo` that way, so its eye cells stay plain until `-e` fills them.
+  `if` and `unless` each take `($eyes)`, `($eyes eq "...")` or `($eyes ne "...")`.
 
 A literal `"..."` follows the rules of the heredoc body below, with `\"` for a quote.
 Perl can run code from inside one, as in `"@{[ ... ]}"`, and those rules refuse every such form.
+A literal `'...'` interpolates nothing, and its only escapes are `\\` and `\'`.
+
+`use utf8;` makes Perl read the rest of the file as UTF-8 characters rather than bytes.
+Malformed UTF-8 is then refused.
 
 Inside the heredoc body:
 
@@ -182,4 +190,5 @@ So is `\N{name}`, and a code of 0, of a surrogate, or past U+10FFFF.
 
 Perl prints a cow with a character above U+00FF as UTF-8, and so does this implementation.
 Perl then encodes each raw byte above 0x7F once more, so such a byte in that cow is refused.
-Without that character, Perl prints `\x80` to `\xFF` as a lone byte, and the escape is refused.
+Without that character, Perl prints U+0080 to U+00FF as a lone byte, so that character is refused.
+It comes from an escape such as `\xA0`, or from the source under `use utf8;`.
