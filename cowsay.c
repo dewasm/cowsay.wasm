@@ -12,6 +12,7 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -1190,12 +1191,18 @@ static char *get_cow(const char *f) {
 
 /* ---------- -l listing ---------- */
 
-static int cmp_str(const void *a, const void *b) {
-  return strcmp(*(char *const *)a, *(char *const *)b);
+/* Insertion sort: the lists are cowfile names, and qsort would add about 2 kB to the binary. */
+static void sort_names(char **v, size_t n) {
+  for (size_t i = 1; i < n; i++) {
+    char *name = v[i];
+    size_t k = i;
+    for (; k > 0 && strcmp(v[k - 1], name) > 0; k--) v[k] = v[k - 1];
+    v[k] = name;
+  }
 }
 
 static void print_name_list(List *names) {
-  qsort(names->v, names->n, sizeof(char *), cmp_str);
+  sort_names(names->v, names->n);
   Buf joined = {0};
   for (size_t i = 0; i < names->n; i++) {
     if (i) buf_push(&joined, ' ');
@@ -1263,7 +1270,7 @@ static List cow_names(void) {
   cowpath_listing(&dirs, names);
   for (size_t i = 0; i < dirs.n; i++)
     for (size_t k = 0; k < names[i]->n; k++) list_push(&all, names[i]->v[k]);
-  qsort(all.v, all.n, sizeof(char *), cmp_str);
+  sort_names(all.v, all.n);
   for (size_t k = 0; k < all.n; k++)
     if (!k || strcmp(all.v[k], all.v[k - 1]) != 0) list_push(&unique, all.v[k]);
   return unique;
@@ -1398,7 +1405,16 @@ static int contains_think(const char *s) {
  */
 static long numify(const char *s) {
   while (is_space(*s)) s++;
-  return strtol(s, NULL, 10);
+  int negative = *s == '-';
+  if (*s == '-' || *s == '+') s++;
+  // The value saturates as strtol's does; strtol itself would add about 2 kB to the binary.
+  unsigned long limit = negative ? (unsigned long)LONG_MAX + 1 : (unsigned long)LONG_MAX;
+  unsigned long value = 0;
+  for (; *s >= '0' && *s <= '9'; s++) {
+    unsigned long digit = (unsigned long)(*s - '0');
+    value = value > (limit - digit) / 10 ? limit : value * 10 + digit;
+  }
+  return negative ? (long)(0 - value) : (long)value;
 }
 
 /* East Asian Ambiguous characters take one column, per Unicode's default.
