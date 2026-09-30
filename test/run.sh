@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 
-# Differential test: our cowsay against the vendored reference, cowsay 3.03 under the host perl.
+# Differential test: our cowsay against the reference, cowsay 3.8.4 under the host perl.
+# The reference is bin/cowsay of the test/submodules/cowsay-org-cowsay submodule.
 # Every case compares stdout, stderr and the exit code.
 # Behaviors changed on purpose are pinned by snapshots under test/fixed/, via the fixed() helper.
 # test/README.md lists them under "Intended fixes".
 #
 # Every case runs our binary twice: with COWPATH pointing at cows/, then without it.
 # That covers the real-filesystem lookup and the embedded cows.
-# The reference always runs with COWPATH.
-# Cases marked "pathonly" skip the embedded run: -l prints the cowfile directory in its header.
+# The reference always runs with COWPATH alone, which COWSAY_ONLY_COWPATH=1 asks for.
+# Cases marked "pathonly" skip the embedded run, since they read cowfiles outside cows/.
 #
 # COWSAY_TEST_MODE=wasm runs cowsay.wasm under wasmtime instead of cowsay-native.
 #
@@ -22,11 +23,14 @@ cd "$(dirname "$0")/.." || exit 1
 unset LANG LC_ALL LC_CTYPE COWSAY_AMBIGUOUS_WIDTH
 ROOT=$PWD
 COWS=$ROOT/cows
-REF=$ROOT/test/reference/cowsay
-# Each submodule under test/submodules, with the directory of its cowfiles.
+REF=$ROOT/test/submodules/cowsay-org-cowsay/bin/cowsay
+if [ ! -f "$REF" ]; then
+  echo "test/submodules/cowsay-org-cowsay is empty: run git submodule update --init" >&2
+  exit 1
+fi
+# Each third-party cowfile collection under test/submodules, with the directory of its cowfiles.
 SUBMODULES=(
   paulkaefer-cowsay-files/cows
-  cowsay-org-cowsay/share/cowsay/cows
   phmajerus-cowfiles/cows
   mstill3-cowsay-files/cows
 )
@@ -137,14 +141,15 @@ else
   under="cowsay-native"
 fi
 printf '%s%s mode%s: %s\n' "$C_NAME" "$MODE" "$C_OFF" "$under"
-printf 'reference: cowsay 3.03 under perl %s\n\n' "$(perl -e 'print $^V')"
+printf 'reference: cowsay 3.8.4 under perl %s\n\n' "$(perl -e 'print $^V')"
 
 run_ref() { # <think> <stdin-file> [args...]
   local think=$1 in=$2
   shift 2
   local script=$REF
   [ "$think" = 1 ] && script=$TMP/cowthink
-  COWPATH=$COWS perl "$script" "$@" <"$in" >"$TMP/ref.out" 2>"$TMP/ref.raw.err"
+  COWSAY_ONLY_COWPATH=1 COWPATH=$COWS perl "$script" "$@" <"$in" >"$TMP/ref.out" \
+    2>"$TMP/ref.raw.err"
   echo $? >"$TMP/ref.code"
   # Intended fix: Perl warns when it prints a cow as UTF-8, and we print no such warning.
   grep -v '^Wide character in print at .* line [0-9]*\.$' "$TMP/ref.raw.err" >"$TMP/ref.err"
@@ -414,8 +419,7 @@ t cow-clawd-no-eyes '' -e '' -f clawd moo
 t cow-clawd-default-eyes '' -e oo -f clawd moo
 t cow-clawd-dead '' -d -f clawd moo
 t cow-missing '' -f nosuch moo
-# Intended fix: a missing path with a slash is an error (the reference exits 0 with no cow).
-fixed cow-slash-missing 2 '' -f /no/such/file.cow moo
+t cow-slash-missing '' -f /no/such/file.cow moo
 # Needs the real filesystem: without a preopen the wasm build cannot open the absolute path.
 t_pathonly cow-slash-path '' -f "$COWS/default.cow" moo
 
@@ -603,17 +607,6 @@ submodule_case paulkaefer-cowsay-files chiyo-chichi
 submodule_refused paulkaefer-cowsay-files cake 8 'unescaped @ in cowfile'
 submodule_refused paulkaefer-cowsay-files golden-eagle 8 'unescaped $ in cowfile'
 
-# cowsay-org-cowsay: the cowfiles that are new since 3.03 or changed; cows/ covers the rest.
-submodule_case cowsay-org-cowsay actually
-submodule_case cowsay-org-cowsay alpaca
-submodule_case cowsay-org-cowsay cupcake
-submodule_case cowsay-org-cowsay fox
-submodule_case cowsay-org-cowsay kiss
-submodule_case cowsay-org-cowsay llama
-submodule_case cowsay-org-cowsay mech-and-cow
-# Single quotes and `ne`.
-submodule_case cowsay-org-cowsay sus
-
 # phmajerus-cowfiles: color and Unicode, as \x1B, \x{...} and \xA0 beside them.
 submodule_case phmajerus-cowfiles alexkidd
 # CRLF line ends.
@@ -631,13 +624,13 @@ submodule_refused mstill3-cowsay-files motivational-whale 19 \
 submodule_refused mstill3-cowsay-files snail 12 'unescaped @ in cowfile'
 
 section usage
-# Intended fix: usage exits with EX_USAGE (64) instead of the reference's 255.
-# The usage text also drops a stray trailing space.
-fixed usage-h 64 '' -h
-fixed usage-n-args 64 '' -n moo
-fixed usage-h-precedence 64 '' -h -l
-t_pathonly list '' -l
-t_pathonly list-ignores-W '' -l -W 10
+# Intended fix: the help names this build beside the cowsay it implements, and leaves out -r and -C.
+fixed usage-h 0 '' -h
+fixed usage-n-args 1 '' -n moo
+fixed usage-h-precedence 0 '' -h -l
+# Not a terminal, so -l prints the names alone.
+t list '' -l
+t list-ignores-W '' -l -W 10
 
 section cowthink
 t_think think-one '' moo
