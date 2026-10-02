@@ -27,8 +27,12 @@ $ echo moo | wasmtime run cowsay.wasm
 The tests read third-party cowfiles from submodules.
 Run `git submodule update --init` once after cloning.
 
+[mise.toml](mise.toml) pins wasi-sdk, binaryen, wasmtime and shellcheck, each with the SHA-256 of its release.
+`mise install` puts them in your shell, and CI installs the same ones.
+Without mise, point `WASI_SDK_PATH` at a wasi-sdk and have `wasm-opt` and `wasmtime` on your `PATH`.
+
 ```console
-$ make               # cowsay.wasm, needs WASI_SDK_PATH and optionally wasm-opt
+$ make               # cowsay.wasm, needs wasi-sdk and optionally wasm-opt
 $ make cowsay-native # host binary, same behavior, used by the tests
 $ make check         # the differential test suite in both modes
 $ make check-native  # only the host binary, against the reference

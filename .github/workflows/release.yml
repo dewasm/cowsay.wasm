@@ -20,15 +20,11 @@ jobs:
             echo "tag $GITHUB_REF_NAME does not match COWSAY_WASM_VERSION $version" >&2
             exit 1
           fi
-      - name: Install wasi-sdk
-        run: |
-          curl -fsSL --retry 5 -o /tmp/wasi-sdk.tar.gz \
-            https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz
-          echo "b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4  /tmp/wasi-sdk.tar.gz" | shasum -a 256 -c -
-          sudo tar -xzf /tmp/wasi-sdk.tar.gz -C /opt
-          echo "WASI_SDK_PATH=/opt/wasi-sdk-34.0-x86_64-linux" >> "$GITHUB_ENV"
-      - name: Install binaryen
-        run: sudo apt-get update && sudo apt-get install -y binaryen
+      - name: Install wasi-sdk and binaryen, as mise.toml pins them
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        with:
+          version: 2026.10.0
+          install_args: http:wasi-sdk http:binaryen
       - name: Build
         run: make cowsay.wasm
       - name: Size against the README

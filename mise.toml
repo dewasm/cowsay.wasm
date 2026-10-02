@@ -1,0 +1,77 @@
+# The build and test tools, at the versions CI runs: `mise install` gives a shell the same ones.
+# Each one is fetched from its GitHub release and checked against the SHA-256 recorded here,
+# so moving to a new version is the version line plus its hashes. The host provides cc and perl.
+# wasmtime publishes no checksum file; the hashes below were computed from the release assets.
+
+[tools."http:wasi-sdk"]
+version = "34"
+
+[tools."http:wasi-sdk".platforms.linux-x64]
+url = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-{{version}}/wasi-sdk-{{version}}.0-x86_64-linux.tar.gz"
+checksum = "sha256:b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4"
+
+[tools."http:wasi-sdk".platforms.linux-arm64]
+url = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-{{version}}/wasi-sdk-{{version}}.0-arm64-linux.tar.gz"
+checksum = "sha256:f7e243dff54d60bcc576e94d6166b69f410f2500ae4a9ceef34315be10e77971"
+
+[tools."http:wasi-sdk".platforms.macos-x64]
+url = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-{{version}}/wasi-sdk-{{version}}.0-x86_64-macos.tar.gz"
+checksum = "sha256:87d27fa8adc68dee59bfbf2e22a6d34ef717c34d6bf1d8af2a56fc929d9ce0eb"
+
+[tools."http:wasi-sdk".platforms.macos-arm64]
+url = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-{{version}}/wasi-sdk-{{version}}.0-arm64-macos.tar.gz"
+checksum = "sha256:9c59398106b417f8f14913380fdf0097a8cc0ff4af9eb3ce0065a859e88d49e9"
+
+# binaryen, for wasm-opt. It ships no linux-arm64 build.
+[tools."http:binaryen"]
+version = "133"
+
+[tools."http:binaryen".platforms.linux-x64]
+url = "https://github.com/WebAssembly/binaryen/releases/download/version_{{version}}/binaryen-version_{{version}}-x86_64-linux.tar.gz"
+checksum = "sha256:2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489"
+
+[tools."http:binaryen".platforms.macos-x64]
+url = "https://github.com/WebAssembly/binaryen/releases/download/version_{{version}}/binaryen-version_{{version}}-x86_64-macos.tar.gz"
+checksum = "sha256:13a9b90be775c6389ce3d1f879cb8627bea56708ba8c122983941d53a8199b95"
+
+[tools."http:binaryen".platforms.macos-arm64]
+url = "https://github.com/WebAssembly/binaryen/releases/download/version_{{version}}/binaryen-version_{{version}}-arm64-macos.tar.gz"
+checksum = "sha256:ad66da82ac13f163e424b1643f16c6dfcccc98b5966296b43e52d3cab04f84a8"
+
+[tools."http:wasmtime"]
+version = "49.0.1"
+
+[tools."http:wasmtime".platforms.linux-x64]
+url = "https://github.com/bytecodealliance/wasmtime/releases/download/v{{version}}/wasmtime-v{{version}}-x86_64-linux.tar.xz"
+checksum = "sha256:c71f7e0d30a92e418f0d17db7c6d8f6664c1ad764340a1278678f4209deab534"
+
+[tools."http:wasmtime".platforms.linux-arm64]
+url = "https://github.com/bytecodealliance/wasmtime/releases/download/v{{version}}/wasmtime-v{{version}}-aarch64-linux.tar.xz"
+checksum = "sha256:7607529c40fed69c0f5d2a6fafa8c560b9e3c18ded31d8f1b13098afe49b7480"
+
+[tools."http:wasmtime".platforms.macos-x64]
+url = "https://github.com/bytecodealliance/wasmtime/releases/download/v{{version}}/wasmtime-v{{version}}-x86_64-macos.tar.xz"
+checksum = "sha256:56355136c4eaba17ef50b0e35e9774e25950333ba007c2a29c45d0906600e827"
+
+[tools."http:wasmtime".platforms.macos-arm64]
+url = "https://github.com/bytecodealliance/wasmtime/releases/download/v{{version}}/wasmtime-v{{version}}-aarch64-macos.tar.xz"
+checksum = "sha256:93dde14d4efb20046e5af75517ac6a7f2246f6c2370fecff8f68839d4a9028f7"
+
+[tools."http:shellcheck"]
+version = "0.11.0"
+
+[tools."http:shellcheck".platforms.linux-x64]
+url = "https://github.com/koalaman/shellcheck/releases/download/v{{version}}/shellcheck-v{{version}}.linux.x86_64.tar.xz"
+checksum = "sha256:8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+
+[tools."http:shellcheck".platforms.linux-arm64]
+url = "https://github.com/koalaman/shellcheck/releases/download/v{{version}}/shellcheck-v{{version}}.linux.aarch64.tar.xz"
+checksum = "sha256:12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588"
+
+[tools."http:shellcheck".platforms.macos-x64]
+url = "https://github.com/koalaman/shellcheck/releases/download/v{{version}}/shellcheck-v{{version}}.darwin.x86_64.tar.xz"
+checksum = "sha256:3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6"
+
+[tools."http:shellcheck".platforms.macos-arm64]
+url = "https://github.com/koalaman/shellcheck/releases/download/v{{version}}/shellcheck-v{{version}}.darwin.aarch64.tar.xz"
+checksum = "sha256:56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79"
