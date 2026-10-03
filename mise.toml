@@ -12,5 +12,4 @@ binaryen = "133"
 wasi-sdk = {
   version = "34",
   version_prefix = "wasi-sdk-",
-  asset_pattern = 'wasi-sdk-{{ version }}.0-{{ arch(x64="x86_64" )}}-{{ os() }}.tar.gz'
 }
