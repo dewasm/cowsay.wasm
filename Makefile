@@ -1,5 +1,5 @@
-# wasi-sdk root; local dev and CI use wasi-sdk-34.
-WASI_SDK_PATH ?= /opt/wasi-sdk
+# wasi-sdk root: the one mise installed from mise.toml when there is one, else /opt/wasi-sdk.
+WASI_SDK_PATH ?= $(or $(shell mise where http:wasi-sdk 2>/dev/null),/opt/wasi-sdk)
 
 CFLAGS ?= -Wall -Wextra -std=c99
 WASM_CFLAGS = $(CFLAGS) -Oz -flto -Wl,--strip-all

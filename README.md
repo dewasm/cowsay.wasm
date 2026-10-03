@@ -1,6 +1,6 @@
 # cowsay.wasm
 
-[cowsay 3.8.4](https://github.com/cowsay-org/cowsay), reimplemented in C for `wasm32-wasip1`.
+[cowsay](https://github.com/cowsay-org/cowsay) reimplemented in C for `wasm32-wasip1`.
 cowsay is (c) 1999-2000 Tony Monroe, and cowsay-org maintains it since.
 
 The popular wasm build of cowsay is [a Rust clone](https://github.com/wapm-packages/cowsay).
@@ -27,16 +27,21 @@ $ echo moo | wasmtime run cowsay.wasm
 The tests read third-party cowfiles from submodules.
 Run `git submodule update --init` once after cloning.
 
+This project uses [`mise`](https://mise.jdx.dev) to fix versions of tools:
+`wasi-sdk`, `binaryen`, `wasmtime`, and `shellcheck`.
+`mise install` puts them in your shell, and CI installs the same ones.
+Without mise, point `WASI_SDK_PATH` at a wasi-sdk and have `wasm-opt` and `wasmtime` on your `PATH`.
+
 ```console
-$ make               # cowsay.wasm, needs WASI_SDK_PATH and optionally wasm-opt
-$ make cowsay-native # host binary, same behavior, used by the tests
-$ make check         # the differential test suite in both modes
-$ make check-native  # only the host binary, against the reference
-$ make check-wasm    # only cowsay.wasm, under wasmtime
-$ make check-size    # cowsay.wasm is under the 100 kB stated above
+$ make                        # cowsay.wasm, needs wasi-sdk and optionally wasm-opt
+$ make cowsay-native          # host binary, same behavior, used by the tests
+$ make check                  # the differential test suite in both modes
+$ make check-native           # only the host binary, against the reference
+$ make check-wasm             # only cowsay.wasm, under wasmtime
+$ make check-size             # cowsay.wasm is under the 100 kB stated above
 $ make check-third-party-cows # every third-party cowfile of test/submodules
-$ make lint          # shellcheck the scripts, and compile-check the Perl generator
-$ make update-ucd    # the only networked step: refresh ucd/ at UNICODE_VERSION
+$ make lint                   # shellcheck the scripts, and compile-check the Perl generator
+$ make update-ucd             # the only networked step: refresh ucd/ at UNICODE_VERSION
 ```
 
 ## Behavior
@@ -48,9 +53,9 @@ Grapheme clusters stay whole, East Asian and emoji characters take two columns,
 and an ANSI colour survives a wrapped line.
 For the full specification, and the suite that enforces it, see [test/README.md](test/README.md).
 
-## Cowfiles
+### Cowfiles
 
-The binary embeds the `.cow` files of cowsay 3.8.4, plus our own `clawd`, a Claude Code crab.
+The binary contains the `.cow` files of cowsay 3.8.4, plus **our own `clawd`**, a Claude Code crab.
 That way `-f name` and `-l` work without any filesystem access at all.
 
 Unlike the plain-text cowfiles of the original, `clawd` is drawn with ANSI truecolor escapes.
@@ -71,7 +76,7 @@ $ wasmtime run --dir my-cows --env COWPATH=my-cows cowsay.wasm -f my-cow
 A cowfile is a Perl script, but this implementation reads a restricted grammar of it instead.
 [test/README.md](test/README.md) states that grammar in full, and anything outside it is refused.
 
-## `cowthink`
+### `cowthink`
 
 Like the original, thought bubbles are selected by the program name.
 So an invocation path containing `think`, in any case, switches to `cowthink`.
