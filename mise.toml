@@ -9,7 +9,12 @@ wasi-sdk = "github:WebAssembly/wasi-sdk"
 wasmtime = "49.0.1"
 shellcheck = "0.11.0"
 binaryen = "133"
-wasi-sdk = {
-  version = "34",
-  version_prefix = "wasi-sdk-",
-}
+
+[tools.wasi-sdk]
+version = "34"
+version_prefix = "wasi-sdk-"
+# mise hides system build tools (cc, ar, etc) in the default.
+# However, these tools are necessary to build the host binary.
+# The below setting drops every binary in wasi-sdk from PATH;
+# therefore, the system build tools are still available.
+filter_bins = ["none"]

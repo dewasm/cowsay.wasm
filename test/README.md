@@ -6,8 +6,7 @@ This file states the specification, while `run.sh` enforces it.
 
 ## Test suite
 
-Run it with `make check`, or one mode at a time with `make check-native` and `make check-wasm`.
-`COWSAY_TEST_MODE=wasm` selects `cowsay.wasm` under wasmtime; the default is `cowsay-native`.
+Run it with `make check`, or one mode at a time with `make check-wasm` and `make check-native`.
 
 Each case compares stdout, stderr and the exit code against the reference.
 It runs our binary twice: with `COWPATH` set to `cows/`, then without it.

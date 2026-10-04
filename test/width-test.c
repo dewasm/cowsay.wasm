@@ -154,8 +154,8 @@ int main(void) {
     c_off = "\033[0m";
   }
   clock_t started = clock();
-  printf("%sunicode%s: Unicode 18.0.0 tables, %s\n\n", c_name, c_off,
-         "grapheme clusters, display width, and the rendition carried across a wrap");
+  printf("%swidth%s: Unicode 18.0.0 tables, %s\n       %s\n\n", c_name, c_off,
+         "grapheme clusters, display width,", "and the rendition carried across a wrap");
 
   FILE *f = fopen("ucd/GraphemeBreakTest.txt", "r");
   if (!f) {
@@ -213,7 +213,7 @@ int main(void) {
   double seconds = (double)(clock() - started) / CLOCKS_PER_SEC;
   if (failures == 0) printf("\n%sunicode: %d ok%s in %.1fs\n\n", c_ok, checks, c_off, seconds);
   else
-    printf("\n%sunicode: %d failed%s, %d ok, in %.1fs\n\n",
+    printf("\n%swidth: %d failed%s, %d ok, in %.1fs\n\n",
            c_bad, failures, c_off, checks - failures, seconds);
   return failures ? 1 : 0;
 }

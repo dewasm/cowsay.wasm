@@ -17,17 +17,6 @@ jobs:
       - name: Lint the scripts
         run: make lint
 
-  native:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: true
-      - name: Build
-        run: make cowsay-native
-      - name: Test
-        run: make check-native
-
   wasm:
     runs-on: ubuntu-latest
     steps:
@@ -47,3 +36,14 @@ jobs:
         with:
           name: cowsay.wasm
           path: cowsay.wasm
+
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+      - name: Build
+        run: make cowsay-native
+      - name: Test
+        run: make check-native

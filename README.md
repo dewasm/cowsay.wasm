@@ -29,19 +29,21 @@ Run `git submodule update --init` once after cloning.
 
 This project uses [`mise`](https://mise.jdx.dev) to fix versions of tools:
 `wasi-sdk`, `binaryen`, `wasmtime`, and `shellcheck`.
-`mise install` puts them in your shell, and CI installs the same ones.
+`mise install` sets them up as the build environment.
 Without mise, point `WASI_SDK_PATH` at a wasi-sdk and have `wasm-opt` and `wasmtime` on your `PATH`.
 
 ```console
-$ make                        # cowsay.wasm, needs wasi-sdk and optionally wasm-opt
-$ make cowsay-native          # host binary, same behavior, used by the tests
-$ make check                  # the differential test suite in both modes
-$ make check-native           # only the host binary, against the reference
-$ make check-wasm             # only cowsay.wasm, under wasmtime
-$ make check-size             # cowsay.wasm is under the 100 kB stated above
-$ make check-third-party-cows # every third-party cowfile of test/submodules
-$ make lint                   # shellcheck the scripts, and compile-check the Perl generator
-$ make update-ucd             # the only networked step: refresh ucd/ at UNICODE_VERSION
+$ make                        # build cowsay.wasm
+$ make cowsay-native          # build host binary
+$ make check                  # run the whole test suite (width + wasm + native + size)
+$ make check-width            # run the test for width computation
+$ make check-wasm             # run the differential test with cowsay.wasm
+$ make check-native           # run the differential test with the host binary
+$ make check-size             # check whether cowsay.wasm is under 100 kB
+$ make check-third-party-cows # run the differential test on every third-party cowfile
+                              # (it use the host binary, or wasm if COWSAY_TEST_MODE=wasm specified)
+$ make lint                   # run lint (shellcheck, perl -c)
+$ make update-ucd             # refresh ucd/ at UNICODE_VERSION in Makefile
 ```
 
 ## Behavior

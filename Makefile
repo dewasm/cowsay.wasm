@@ -1,4 +1,3 @@
-# wasi-sdk root: the one mise installed from mise.toml when there is one, else /opt/wasi-sdk.
 WASI_SDK_PATH ?= $(or $(shell mise where wasi-sdk 2>/dev/null),/opt/wasi-sdk)
 
 CFLAGS ?= -Wall -Wextra -std=c99
@@ -6,10 +5,9 @@ WASM_CFLAGS = $(CFLAGS) -Oz -flto -Wl,--strip-all
 
 COWS = $(sort $(wildcard cows/*.cow))
 SRC = cowsay.c width.c
-# The wasm build brings its own heap; the native build keeps the system allocator.
 WASM_SRC = $(SRC) alloc.c
 
-# The README promises a binary under 100 kB; check-size holds every build to it.
+# README promises a wasm binary under 100 kB; check-size holds every build to it.
 WASM_SIZE_LIMIT = 100000
 
 # The version tools/fetch-ucd.sh pulls into ucd/; the tables follow what is vendored there.
@@ -19,8 +17,8 @@ UCD_FILES = $(UCD)/EastAsianWidth.txt $(UCD)/DerivedCoreProperties.txt \
             $(UCD)/DerivedGeneralCategory.txt $(UCD)/emoji-data.txt \
             $(UCD)/GraphemeBreakProperty.txt
 
-.PHONY: all check check-width check-native check-wasm check-size check-third-party-cows lint \
-        update-ucd clean
+.PHONY: all lint update-ucd clean
+.PHONY: check check-width check-wasm check-native check-size check-third-party-cows
 
 all: cowsay.wasm
 
@@ -38,20 +36,17 @@ cowsay-native: $(SRC) cows_embedded.h unicode_tables.h width.h
 width-test: test/width-test.c width.c unicode_tables.h width.h $(UCD)/GraphemeBreakTest.txt
 	$(CC) $(CFLAGS) -O1 -I. -o $@ test/width-test.c width.c
 
-check: check-width check-native check-wasm check-size
+check: check-width check-wasm check-native check-size
 
-# The Unicode side: the UCD's own break test, plus the width and rendition rules cowsay relies on.
 check-width: width-test
 	@./width-test
-
-check-native: cowsay-native
-	@bash test/run.sh
 
 check-wasm: cowsay.wasm
 	@COWSAY_TEST_MODE=wasm bash test/run.sh
 
-# Every cowfile of the third-party collections under test/submodules, outside `make check`.
-# It runs natively unless COWSAY_TEST_MODE=wasm.
+check-native: cowsay-native
+	@bash test/run.sh
+
 check-third-party-cows: $(if $(filter wasm,$(COWSAY_TEST_MODE)),cowsay.wasm,cowsay-native)
 	@bash test/run.sh --third-party-cows
 
@@ -62,16 +57,13 @@ check-size: cowsay.wasm
 	fi; \
 	echo "cowsay.wasm: $$size bytes, under $(WASM_SIZE_LIMIT)"
 
-# The README picture of clawd, whose colors a code block cannot show.
 docs/clawd.svg: cowsay-native tools/ansi-to-svg.pl cows/clawd.cow
 	./cowsay-native -f clawd "Hello from cowsay.wasm" \
 	  | perl tools/ansi-to-svg.pl '$$ cowsay -f clawd "Hello from cowsay.wasm"' > $@
 
-# The tables are built from the vendored UCD, like cows_embedded.h is built from cows/.
 unicode_tables.h: tools/gen-unicode-tables.pl $(UCD_FILES)
 	perl tools/gen-unicode-tables.pl $(UCD) > $@
 
-# The only networked step: move the vendored UCD to UNICODE_VERSION, then commit the diff.
 update-ucd:
 	sh tools/fetch-ucd.sh $(UNICODE_VERSION) $(UCD)
 
