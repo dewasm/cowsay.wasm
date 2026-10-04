@@ -6,7 +6,7 @@ binaryen = "aqua:WebAssembly/binaryen"
 wasi-sdk = "github:WebAssembly/wasi-sdk"
 
 [tools]
-wasmtime = "49.0.1"
+wasmtime = "49.0.2"
 shellcheck = "0.11.0"
 binaryen = "133"
 
