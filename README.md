@@ -29,7 +29,7 @@ Run `git submodule update --init` once after cloning.
 
 This project uses [`mise`](https://mise.jdx.dev) to fix versions of tools:
 `wasi-sdk`, `binaryen`, `wasmtime`, and `shellcheck`.
-`mise install` sets them up as the build environment.
+`mise install` sets them up as the build environment, and `mise.toml` sets `WASI_SDK_PATH`.
 Without mise, point `WASI_SDK_PATH` at a wasi-sdk and have `wasm-opt` and `wasmtime` on your `PATH`.
 
 ```console

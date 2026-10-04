@@ -18,3 +18,8 @@ version_prefix = "wasi-sdk-"
 # The below setting drops every binary in wasi-sdk from PATH;
 # therefore, the system build tools are still available.
 filter_bins = ["none"]
+
+[env]
+# Before `mise install`, `tools` has no entry for wasi-sdk, and reading its path is an error.
+# So the variable is empty until then, and the Makefile treats an empty value as unset.
+WASI_SDK_PATH = { value = "{% if tools['wasi-sdk'] is defined %}{{ tools['wasi-sdk'].path }}{% endif %}", tools = true }
