@@ -74,7 +74,7 @@ The following behaviors of the reference are bugs with no value to preserve and 
 - A cowfile's `($eyes)` is false only for an empty `$eyes`.
   Perl takes `"0"` as false too, so the reference shows the default `..` for `cowsay -e 0 -f small`.
 - The help names this build beside the cowsay it implements.
-  Its first line reads `cowsay version 3.8.4 (cowsay.wasm 0.2.0)`.
+  Its first line reads `cowsay version 3.8.4 (cowsay.wasm 0.3.0)`.
   It also leaves out `-C`, which this build does not have.
 - A relative path in `-f`, such as `-f cows/tux.cow`, reads that file.
   The reference loads it with `do`, which searches `@INC` unless the path starts with `./` or `../`,

@@ -25,7 +25,7 @@
 
 /* The cowsay this reimplements, and the version of this reimplementation; -h names both. */
 #define COWSAY_VERSION "3.8.4"
-#define COWSAY_WASM_VERSION "0.2.0"
+#define COWSAY_WASM_VERSION "0.3.0"
 
 /* ---------- output ----------
  *
