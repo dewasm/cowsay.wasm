@@ -1,5 +1,3 @@
-# mise.toml sets WASI_SDK_PATH where mise is active.
-# Elsewhere it is unset or empty, and the SDK that mise installed is asked for by name.
 ifeq ($(strip $(WASI_SDK_PATH)),)
 WASI_SDK_PATH := $(or $(shell mise where wasi-sdk 2>/dev/null),/opt/wasi-sdk)
 endif
