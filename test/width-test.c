@@ -154,17 +154,26 @@ int main(void) {
     c_off = "\033[0m";
   }
   clock_t started = clock();
-  printf("%swidth%s: Unicode 18.0.0 tables, %s\n       %s\n\n", c_name, c_off,
-         "grapheme clusters, display width,", "and the rendition carried across a wrap");
 
   FILE *f = fopen("ucd/GraphemeBreakTest.txt", "r");
   if (!f) {
     printf("FAIL: cannot open ucd/GraphemeBreakTest.txt\n");
     return 1;
   }
-  section("clusters");
+  // The break test names its Unicode version on the first line, as every vendored UCD file does.
   char line[1024];
-  int lineno = 0;
+  int major, minor, update;
+  if (!fgets(line, sizeof line, f) ||
+      sscanf(line, "# GraphemeBreakTest-%d.%d.%d.txt", &major, &minor, &update) != 3) {
+    printf("FAIL: ucd/GraphemeBreakTest.txt names no version on its first line\n");
+    return 1;
+  }
+  printf("%swidth%s: Unicode %d.%d.%d tables, %s\n       %s\n\n", c_name, c_off,
+         major, minor, update,
+         "grapheme clusters, display width,", "and the rendition carried across a wrap");
+
+  section("clusters");
+  int lineno = 1;
   while (fgets(line, sizeof line, f)) {
     lineno++;
     if (line[0] == '#' || line[0] == '\n') continue;

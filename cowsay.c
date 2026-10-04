@@ -1,5 +1,5 @@
 /*
- * cowsay.wasm: a C reimplementation of cowsay 3.8.4, for wasm32-wasip1.
+ * cowsay.wasm: a C reimplementation of cowsay, for wasm32-wasip1.
  * cowsay is (c) 1999-2000 Tony Monroe, and cowsay-org maintains it since.
  *
  * The output specification and the intended fixes are documented in test/README.md.

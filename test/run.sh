@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 
-# Differential test: our cowsay against the reference, cowsay 3.8.4 under the host perl.
+# Differential test: our cowsay against the reference cowsay under the host perl.
 # The reference is bin/cowsay of the test/submodules/cowsay-org-cowsay submodule.
 # Every case compares stdout, stderr and the exit code.
 # Behaviors changed on purpose are pinned by snapshots under test/fixed/, via the fixed() helper.
+# The help is the exception: help_fixed() edits the reference's help by the fix and compares that.
 # test/README.md lists them under "Intended fixes".
 #
 # Every case runs our binary twice: with COWPATH pointing at cows/, then without it.
@@ -61,6 +62,12 @@ if [ "$MODE" = wasm ]; then
 else
   [ -x cowsay-native ] || missing "cowsay-native is missing: run make cowsay-native"
 fi
+
+# The versions come from their sources: the reference's --version, and the define in cowsay.c.
+REF_VERSION=$(perl "$REF" --version | sed -n 's/.* version \([0-9.]*\) calling .*/\1/p')
+[ -n "$REF_VERSION" ] || missing "$REF --version names no version"
+COWSAY_WASM_VERSION=$(sed -n 's/^#define COWSAY_WASM_VERSION "\(.*\)"/\1/p' cowsay.c)
+[ -n "$COWSAY_WASM_VERSION" ] || missing "cowsay.c defines no COWSAY_WASM_VERSION"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -156,7 +163,7 @@ else
   under="cowsay-native"
 fi
 printf '%s%s mode%s: %s\n' "$C_NAME" "$MODE" "$C_OFF" "$under"
-printf 'reference: cowsay 3.8.4 under perl %s\n\n' "$(perl -e 'print $^V')"
+printf 'reference: cowsay %s under perl %s\n\n' "$REF_VERSION" "$(perl -e 'print $^V')"
 
 run_ref() { # <think> <stdin-file> [args...]
   local think=$1 in=$2
@@ -170,10 +177,18 @@ run_ref() { # <think> <stdin-file> [args...]
   echo $? >"$TMP/ref.code"
   # Intended fix: Perl warns when it prints a cow as UTF-8, and we print no such warning.
   grep -v '^Wide character in print at .* line [0-9]*\.$' "$TMP/ref.raw.err" >"$TMP/ref.err"
+  if [ -n "$REF_REWRITE" ]; then
+    COWSAY_WASM_VERSION=$COWSAY_WASM_VERSION perl -0pi -e "$REF_REWRITE" "$TMP/ref.out"
+  fi
 }
 
 # CASE_ENV names the variables a case hands to both runs, as NAME=VALUE words.
 CASE_ENV=
+
+# REF_REWRITE is Perl code run over the reference's stdout before the comparison,
+# for an intended fix that is a known edit of the reference's output.
+# It reads our version as $ENV{COWSAY_WASM_VERSION}.
+REF_REWRITE=
 
 run_ours() { # <think> <path|embedded> <stdin-file> [args...]
   local think=$1 cpmode=$2 in=$3
@@ -285,6 +300,17 @@ fixed() { # <name> <expected-exit> <stdin-string> [args...]
       } >>"$FAILLOG"
     fi
   done
+}
+
+# Intended fix: the help names this build beside the reference's version, and leaves out -C.
+help_fixed() { # <command> [args...]
+  # shellcheck disable=SC2016 # Perl code, whose variables Perl expands.
+  local REF_REWRITE='
+    s/^(\S+ version \S+)$/$1 (cowsay.wasm $ENV{COWSAY_WASM_VERSION})/m;
+    s/ \[-r \[-C\]\]/ [-r]/;
+    s/ If -C is also given,\n\s*then full-color cows will be included\.//;
+  '
+  "$@"
 }
 
 with_env() { # <NAME=VALUE...> -- <command> [args...]
@@ -691,10 +717,9 @@ submodule_refused mstill3-cowsay-files motivational-whale 19 \
 submodule_refused mstill3-cowsay-files snail 12 'unescaped @ in cowfile'
 
 section usage
-# Intended fix: the help names this build beside the cowsay it implements, and leaves out -C.
-fixed usage-h 0 '' -h
-fixed usage-n-args 1 '' -n moo
-fixed usage-h-precedence 0 '' -h -l
+help_fixed t usage-h '' -h
+help_fixed t usage-n-args '' -n moo
+help_fixed t usage-h-precedence '' -h -l
 # Not a terminal, so -l prints the names alone.
 t list '' -l
 t list-ignores-W '' -l -W 10
