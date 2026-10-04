@@ -1,4 +1,6 @@
-WASI_SDK_PATH ?= $(or $(shell mise where wasi-sdk 2>/dev/null),/opt/wasi-sdk)
+ifeq ($(strip $(WASI_SDK_PATH)),)
+WASI_SDK_PATH := $(or $(shell mise where wasi-sdk 2>/dev/null),/opt/wasi-sdk)
+endif
 
 CFLAGS ?= -Wall -Wextra -std=c99
 WASM_CFLAGS = $(CFLAGS) -Oz -flto -Wl,--strip-all
