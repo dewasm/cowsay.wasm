@@ -40,7 +40,7 @@ The suite reads these files, with paths relative to `test/`:
 ## Output specification
 
 For ASCII input, stdout, stderr and the exit code are identical to the reference.
-That reference runs under a modern Perl, meaning `Text::Wrap` 2018.6 or later.
+That reference runs under a modern Perl.
 The only exceptions are the intended fixes below, which snapshot files under `fixed/` pin instead.
 The help alone is compared against the reference's help, with the edits of its fix applied.
 
