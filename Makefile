@@ -10,15 +10,14 @@ WASM_SRC = $(SRC) alloc.c
 # README promises a wasm binary under 100 kB; check-size holds every build to it.
 WASM_SIZE_LIMIT = 100000
 
-# The version tools/fetch-ucd.sh pulls into ucd/; the tables follow what is vendored there.
-UNICODE_VERSION = 18.0.0
+# The tables follow the version vendored in ucd/; update-ucd takes UNICODE_VERSION to move it.
 UCD = ucd
 UCD_FILES = $(UCD)/EastAsianWidth.txt $(UCD)/DerivedCoreProperties.txt \
             $(UCD)/DerivedGeneralCategory.txt $(UCD)/emoji-data.txt \
             $(UCD)/GraphemeBreakProperty.txt
 
 .PHONY: all lint update-ucd clean
-.PHONY: check check-width check-wasm check-native check-size check-third-party-cows
+.PHONY: check check-width check-wasm check-native check-size check-docs check-third-party-cows
 
 all: cowsay.wasm
 
@@ -36,7 +35,7 @@ cowsay-native: $(SRC) cows_embedded.h unicode_tables.h width.h
 width-test: test/width-test.c width.c unicode_tables.h width.h $(UCD)/GraphemeBreakTest.txt
 	$(CC) $(CFLAGS) -O1 -I. -o $@ test/width-test.c width.c
 
-check: check-width check-wasm check-native check-size
+check: check-width check-wasm check-native check-size check-docs
 
 check-width: width-test
 	@./width-test
@@ -57,6 +56,9 @@ check-size: cowsay.wasm
 	fi; \
 	echo "cowsay.wasm: $$size bytes, under $(WASM_SIZE_LIMIT)"
 
+check-docs:
+	@bash test/check-docs.sh
+
 docs/clawd.svg: cowsay-native tools/ansi-to-svg.pl cows/clawd.cow
 	./cowsay-native -f clawd "Hello from cowsay.wasm" \
 	  | perl tools/ansi-to-svg.pl '$$ cowsay -f clawd "Hello from cowsay.wasm"' > $@
@@ -65,10 +67,17 @@ unicode_tables.h: tools/gen-unicode-tables.pl $(UCD_FILES)
 	perl tools/gen-unicode-tables.pl $(UCD) > $@
 
 update-ucd:
+	@if [ -z "$(UNICODE_VERSION)" ]; then \
+	  current=$$(sed -n '1s/^# EastAsianWidth-\(.*\)\.txt$$/\1/p' $(UCD)/EastAsianWidth.txt); \
+	  echo "update-ucd: UNICODE_VERSION is not set; $(UCD)/ holds Unicode $$current now." >&2; \
+	  echo "Run: make update-ucd UNICODE_VERSION=<version>" >&2; \
+	  exit 1; \
+	fi
 	sh tools/fetch-ucd.sh $(UNICODE_VERSION) $(UCD)
 
 lint:
 	shellcheck test/run.sh
+	shellcheck test/check-docs.sh
 	perl -c test/gen-fuzz.pl
 	perl -c tools/ansi-to-svg.pl
 	perl -c tools/embed-cows.pl

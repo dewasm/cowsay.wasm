@@ -33,6 +33,7 @@ The suite reads these files, with paths relative to `test/`:
 | `width/` | snapshots of non-ASCII width, which the byte-based reference cannot define |
 | `gen-fuzz.pl` | 250 deterministic fuzz cases (`srand(42)`): 150 from arguments, 100 from stdin |
 | `width-test.c` | the UCD's break test, plus the width and rendition rules (`make check-width`) |
+| `check-docs.sh` | the versions the documents name, against their sources (`make check-docs`) |
 | `../ucd/` | the UCD files as published, read for the tables and the break test |
 | `submodules/` | repositories of cowfiles, each a submodule at a fixed commit, the reference among them |
 
@@ -41,6 +42,7 @@ The suite reads these files, with paths relative to `test/`:
 For ASCII input, stdout, stderr and the exit code are identical to the reference.
 That reference runs under a modern Perl, meaning `Text::Wrap` 2018.6 or later.
 The only exceptions are the intended fixes below, which snapshot files under `fixed/` pin instead.
+The help alone is compared against the reference's help, with the edits of its fix applied.
 
 The remaining behaviors of the original are part of the specification too, reproduced intentionally:
 
@@ -71,7 +73,8 @@ The following behaviors of the reference are bugs with no value to preserve and 
   so `cowsay 0` and `cowsay ""` wait on stdin.
 - A cowfile's `($eyes)` is false only for an empty `$eyes`.
   Perl takes `"0"` as false too, so the reference shows the default `..` for `cowsay -e 0 -f small`.
-- The help names this build beside the cowsay it implements: `version 3.8.4 (cowsay.wasm 0.2.0)`.
+- The help names this build beside the cowsay it implements.
+  Its first line reads `cowsay version 3.8.4 (cowsay.wasm 0.2.0)`.
   It also leaves out `-C`, which this build does not have.
 - A relative path in `-f`, such as `-f cows/tux.cow`, reads that file.
   The reference loads it with `do`, which searches `@INC` unless the path starts with `./` or `../`,
@@ -100,7 +103,8 @@ and an overlong word breaks in the middle of a character.
 This implementation counts the columns a terminal uses, per Unicode 18.0.0:
 
 The property tables come from the UCD files vendored under `ucd/`, so a build stays offline.
-`make update-ucd` moves those to another Unicode version, and the tables follow.
+`make update-ucd UNICODE_VERSION=<version>` moves those to that Unicode version.
+The tables follow them on the next build.
 
 - Text is measured in **extended grapheme clusters** (UAX #29), so a line never breaks inside one.
 - A cluster takes the width of its base character: two columns for East Asian Wide and Fullwidth,

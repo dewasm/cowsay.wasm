@@ -1,6 +1,6 @@
 ##
 ## Clawd, the Claude Code crab.
-## Our own addition to cowsay.wasm, not part of cowsay 3.03.
+## Our own addition to cowsay.wasm, not part of cowsay.
 ##
 ## Measured from the Claude Code welcome screen sprite: one sprite unit is one full terminal cell.
 ## The body is a 13x4 rectangle, the arms two cells on its third row, the eyes single black cells.

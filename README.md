@@ -35,15 +35,17 @@ Without mise, point `WASI_SDK_PATH` at a wasi-sdk and have `wasm-opt` and `wasmt
 ```console
 $ make                        # build cowsay.wasm
 $ make cowsay-native          # build host binary
-$ make check                  # run the whole test suite (width + wasm + native + size)
+$ make check                  # run the whole test suite (width + wasm + native + size + docs)
 $ make check-width            # run the test for width computation
 $ make check-wasm             # run the differential test with cowsay.wasm
 $ make check-native           # run the differential test with the host binary
 $ make check-size             # check whether cowsay.wasm is under 100 kB
+$ make check-docs             # check the versions the documents name against their sources
 $ make check-third-party-cows # run the differential test on every third-party cowfile
                               # (it use the host binary, or wasm if COWSAY_TEST_MODE=wasm specified)
 $ make lint                   # run lint (shellcheck, perl -c)
-$ make update-ucd             # refresh ucd/ at UNICODE_VERSION in Makefile
+$ make update-ucd UNICODE_VERSION=<version>
+                              # refresh ucd/ to that Unicode version
 ```
 
 ## Behavior
